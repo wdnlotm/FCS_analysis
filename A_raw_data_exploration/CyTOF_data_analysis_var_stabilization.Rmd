@@ -1,0 +1,1082 @@
+---
+title: "CyTOF analysis with graph variables saving"
+output: html_notebook
+---
+
+
+#clear all and load libraries
+```{r, message==FALSE}
+#rm(list = ls())
+library(readxl, quietly = T)
+library(tidyverse, quietly = T)
+library(CATALYST, quietly = T)
+library(FlowSOM, quietly = T)
+library(flowCore, quietly = T)
+library(igraph, quietly = T)
+library(uwot, quietly = T)
+#library(tictoc) Never use this
+#library(leiden) #this asks a question. Can I provide 'yes' as default?
+```
+
+
+#Read panel info
+```{r}
+#panel_read <- read_csv("/project/mcnamara-lab/myles_kim/RedHart2_v_CAVA/panelfile_RH2vCAVA_tcelll.csv")
+#save(panel_read, file = "paneldata.RData")
+panel_read <- read_csv("../panelfile_nometal_draft1.csv")
+
+#panel_read[31,3]="type" #CD27 as type
+
+table(panel_read$marker_class)
+
+
+```
+
+
+
+#Read or make metadata
+```{r}
+
+#load("./metadata.RData")
+
+data_folder <- "/project/mcnamara-lab/FCS_folder/REDHART2_v_CAVA/New Subpopulation Export JC/Tcells_colfixed/"
+
+files_fcs <- list.files(data_folder, pattern = "fcs$")
+
+metadata = data.frame(file_name = files_fcs)
+metadata$sample_id = gsub("Colfixed_", "", files_fcs)
+metadata$sample_id = gsub(".fcs", "", metadata$sample_id)
+
+patient_id1 = stringr::str_match(files_fcs, "[1-9][0-9][0-9][0-9]")[,1] 
+patient_id1[which(is.na(patient_id1))] = 
+  stringr::str_match(files_fcs[which(is.na(patient_id1))], "[1-9][0-9][0-9]")[,1] 
+patient_id1[which(is.na(patient_id1))] =
+  stringr::str_match(files_fcs[which(is.na(patient_id1))], "HBO19")[,1]
+
+metadata$patient_id = patient_id1
+
+rm(patient_id1)
+
+metadata$condition = "VEH"
+metadata$condition[  which(!is.na(stringr::str_match(files_fcs, "US")[,1]))  ] <- "VEH"
+metadata$condition[  which(!is.na(stringr::str_match(files_fcs, "VEH")[,1]))  ] <- "VEH"
+metadata$condition[  which(!is.na(stringr::str_match(files_fcs, "IL-1b")[,1]))  ] <- "IL1b"
+metadata$condition[  which(!is.na(stringr::str_match(files_fcs, "IL-6")[,1]))  ] <- "IL6"
+
+
+save(metadata, file = "metadata.RData")
+```
+
+
+
+#Read FCS's into sce
+```{r}
+
+sce <- prepData(data_folder, panel = panel_read, md = metadata, features = panel_read$fcs_colname)
+Sys.time()
+
+```
+
+
+
+```{r}
+sample_list <- metadata$sample_id
+
+marker_list <- setdiff(type_markers(sce), c("CD45", "CD3"))
+
+
+pair_of_s_m <- expand.grid(sample_list, marker_list)
+ 
+
+pair_list <- lapply(1:4752, function(ii){
+  
+  return <- c(pair_of_s_m[ii, 1],pair_of_s_m[ii, 2])
+  
+})
+
+mean_var <- lapply(pair_list, function(s_m){
+
+  index_2_use <- which(sce$sample_id==as.character(s_m[1]))
+  m = as.character(s_m[2])
+  return <- c(mean(sce@assays@data$counts[m,index_2_use]), var(sce@assays@data$counts[m,index_2_use]))
+  #return <- c(median(sce@assays@data$counts[m,]), var(sce@assays@data$counts[m,]))
+
+})
+
+
+mean_var_unlist <- unlist(mean_var)
+
+mean_var_df <- data.frame(means = mean_var_unlist[seq(1,length(mean_var_unlist), by=2)], 
+                          vars = mean_var_unlist[seq(2,length(mean_var_unlist), by=2)], markers = marker_list)
+
+```
+
+
+
+```{r}
+# gg <- ggplot()+geom_point(data = mean_var_df, aes(x=means, y=log10(vars+1))) + labs(title=paste("Mean v Variance"))+
+#   theme(axis.text.x = element_text(size = 12)) +  theme(axis.text.y = element_text(size = 12)) 
+# gg
+quadfunc2 <- function(t, a) (a*t^2+t)
+fulldata_fit <- nls(vars ~ quadfunc2(means,a), data = mean_var_df, start=list(a=1))
+fulldata_fit_summary <- summary(fulldata_fit)
+
+a = fulldata_fit_summary$coefficients[1]
+xlims = floor(range(mean_var_df$means))
+#, color=markers
+
+gg1 <- ggplot()+geom_point(data = mean_var_df, aes(x=means, y=vars), size = 0.5) + 
+  theme(axis.text.x = element_text(size = 12)) +
+  theme(axis.text.y = element_text(size = 12)) +
+  labs(title=paste("Mean v Variance.", "Fitted to a*x^2 + x"))
+#gg1
+
+gg2 <- ggplot()+geom_point(data = mean_var_df, aes(x=means, y=vars), size = 0.5) + 
+  theme(axis.text.x = element_text(size = 12)) + 
+  theme(axis.text.y = element_text(size = 12)) + 
+  scale_y_continuous(trans="log10") + 
+  labs(title=paste("Mean v Variance.", "Residual standard error =", fulldata_fit_summary$sigma))
+#gg2
+
+
+
+
+
+gg1 + geom_line(data = data.frame(x=seq(xlims[1], xlims[2], by=1), y=(seq(xlims[1], xlims[2], by=1))^2*a + (seq(xlims[1], xlims[2], by=1))),  aes(x=x,y=y)) 
+
+gg2 + geom_line(data = data.frame(x=seq(xlims[1], xlims[2], by=1), y=(seq(xlims[1], xlims[2], by=1))^2*a + (seq(xlims[1], xlims[2], by=1))),  aes(x=x,y=y)) + scale_y_continuous(trans="log10")
+
+# +
+#   geom_line(data = data.frame(x=seq(0, 90, by=1), y=(seq(0, 90, by=1))^2*2.1609 + (seq(0, 90, by=1))),  aes(x=x,y=y)) + scale_y_continuous(trans="log10")
+
+
+```
+
+
+
+
+
+
+
+```{r}
+# gg <- ggplot()+geom_point(data = mean_var_df, aes(x=means, y=log10(vars+1))) + labs(title=paste("Mean v Variance"))+
+#   theme(axis.text.x = element_text(size = 12)) +  theme(axis.text.y = element_text(size = 12)) 
+# gg
+quadfunc2 <- function(t, a) (a*t^2+t)
+fulldata_fit2 <- nls(vars ~ quadfunc2(means,a), 
+                    data = mean_var_df %>% dplyr::filter(vars <var_cutoff), start=list(a=1)   )
+fulldata_fit2_summary <- summary(fulldata_fit2)
+
+a = fulldata_fit2_summary$coefficients[1]
+xlims = floor(range(mean_var_df$means))
+#, color=markers
+
+gg1 <- ggplot()+geom_point(data = mean_var_df %>% dplyr::filter(vars <var_cutoff), aes(x=means, y=vars), size = 0.5) + 
+  theme(axis.text.x = element_text(size = 12)) +
+  theme(axis.text.y = element_text(size = 12)) +
+  labs(title=paste("Mean v Variance.", "Fitted to a*x^2 + x"))
+#gg1
+
+gg2 <- ggplot()+geom_point(data = mean_var_df %>% dplyr::filter(vars <var_cutoff), aes(x=means, y=vars), size = 0.5) + 
+  theme(axis.text.x = element_text(size = 12)) + 
+  theme(axis.text.y = element_text(size = 12)) + 
+  scale_y_continuous(trans="log10") + 
+  labs(title=paste("Mean v Variance.", "Residual standard error =", fulldata_fit2_summary$sigma))
+#gg2
+
+
+
+
+
+gg1 + geom_line(data = data.frame(x=seq(xlims[1], xlims[2], by=1), y=(seq(xlims[1], xlims[2], by=1))^2*a + (seq(xlims[1], xlims[2], by=1))),  aes(x=x,y=y)) 
+
+gg2 + geom_line(data = data.frame(x=seq(xlims[1], xlims[2], by=1), y=(seq(xlims[1], xlims[2], by=1))^2*a + (seq(xlims[1], xlims[2], by=1))),  aes(x=x,y=y)) + scale_y_continuous(trans="log10")
+
+# +
+#   geom_line(data = data.frame(x=seq(0, 90, by=1), y=(seq(0, 90, by=1))^2*2.1609 + (seq(0, 90, by=1))),  aes(x=x,y=y)) + scale_y_continuous(trans="log10")
+
+
+```
+
+
+
+
+
+
+```{r}
+
+quadfunc3 <- function(t, a, b) (a*t^2+b)
+fulldata_fit3 <- nls(vars ~ quadfunc3(means,a,b), data = mean_var_df, start=list(a=1, b=1))
+fulldata_fit3_summary <- summary(fulldata_fit3)
+
+a = fulldata_fit3_summary$coefficients[1]
+b = fulldata_fit3_summary$coefficients[2]
+xlims = floor(range(mean_var_df$means))
+
+
+gg1 <- ggplot()+geom_point(data = mean_var_df, aes(x=means, y=vars), size = 0.5) + 
+  theme(axis.text.x = element_text(size = 12)) +
+  theme(axis.text.y = element_text(size = 12)) +
+  labs(title=paste("Mean v Variance.", "Fitted to a*x^2 + b"))
+#gg1
+
+gg2 <- ggplot()+geom_point(data = mean_var_df, aes(x=means, y=vars), size = 0.5) + 
+  theme(axis.text.x = element_text(size = 12)) + 
+  theme(axis.text.y = element_text(size = 12)) + 
+  scale_y_continuous(trans="log10") + 
+  labs(title=paste("Mean v Variance.", "Residual standard error =", fulldata_fit3_summary$sigma))
+#gg2
+
+
+
+gg1 + geom_line(data = data.frame(x=seq(xlims[1], xlims[2], by=1), y=(seq(xlims[1], xlims[2], by=1))^2*a + (b+0*seq(xlims[1], xlims[2], by=1))),  aes(x=x,y=y)) 
+
+gg2 + geom_line(data = data.frame(x=seq(xlims[1], xlims[2], by=1), y=(seq(xlims[1], xlims[2], by=1))^2*a + (b+0*seq(xlims[1], xlims[2], by=1))),  aes(x=x,y=y)) + scale_y_continuous(trans="log10")
+
+# +
+#   geom_line(data = data.frame(x=seq(0, 90, by=1), y=(seq(0, 90, by=1))^2*2.1609 + (seq(0, 90, by=1))),  aes(x=x,y=y)) + scale_y_continuous(trans="log10")
+
+
+```
+
+```{r}
+
+quadfunc4 <- function(t, a, b) (a*t^2+b)
+fulldata_fit4 <- nls(vars ~ quadfunc4(means,a,b), data = mean_var_df %>% dplyr::filter(vars <var_cutoff), start=list(a=1, b=1))
+fulldata_fit4_summary <- summary(fulldata_fit4)
+
+a = fulldata_fit4_summary$coefficients[1]
+b = fulldata_fit4_summary$coefficients[2]
+xlims = floor(range(mean_var_df$means))
+
+
+gg1 <- ggplot()+geom_point(data = mean_var_df %>% dplyr::filter(vars <var_cutoff), aes(x=means, y=vars), size = 0.5) + 
+  theme(axis.text.x = element_text(size = 12)) +
+  theme(axis.text.y = element_text(size = 12)) +
+  labs(title=paste("Mean v Variance.", "Fitted to a*x^2 + b"))
+#gg1
+
+gg2 <- ggplot()+geom_point(data = mean_var_df %>% dplyr::filter(vars <var_cutoff), aes(x=means, y=vars), size = 0.5) + 
+  theme(axis.text.x = element_text(size = 12)) + 
+  theme(axis.text.y = element_text(size = 12)) + 
+  scale_y_continuous(trans="log10") + 
+  labs(title=paste("Mean v Variance.", "Residual standard error =", fulldata_fit4_summary$sigma))
+#gg2
+
+
+
+gg1 + geom_line(data = data.frame(x=seq(xlims[1], xlims[2], by=1), y=(seq(xlims[1], xlims[2], by=1))^2*a + (b+0*seq(xlims[1], xlims[2], by=1))),  aes(x=x,y=y)) 
+
+gg2 + geom_line(data = data.frame(x=seq(xlims[1], xlims[2], by=1), y=(seq(xlims[1], xlims[2], by=1))^2*a + (b+0*seq(xlims[1], xlims[2], by=1))),  aes(x=x,y=y)) + scale_y_continuous(trans="log10")
+
+# +
+#   geom_line(data = data.frame(x=seq(0, 90, by=1), y=(seq(0, 90, by=1))^2*2.1609 + (seq(0, 90, by=1))),  aes(x=x,y=y)) + scale_y_continuous(trans="log10")
+
+
+```
+
+
+
+```{r}
+
+marker = marker_list[5]
+
+mean_var_df %>% dplyr::filter(markers==marker)
+
+ggm <- ggplot()+geom_point(data = mean_var_df %>% dplyr::filter(markers==marker), aes(x=means, y=vars), size = 0.5) + 
+  theme(axis.text.x = element_text(size = 12)) +
+  theme(axis.text.y = element_text(size = 12)) +
+  labs(title=paste("Mean v Variance.", marker))
+#gg1
+ggm + scale_y_continuous(trans="log10")
+
+
+
+quadfunc4 <- function(t, a, b) (a*t^2+b)
+fulldata_fit4 <- nls(vars ~ quadfunc4(means,a,b), 
+                     data = mean_var_df %>% dplyr::filter((markers==marker)&(vars < 1000)), 
+                     start=list(a=1, b=1))
+fulldata_fit4_summary <- summary(fulldata_fit4)
+
+a = fulldata_fit4_summary$coefficients[1]
+b = fulldata_fit4_summary$coefficients[2]
+xlims = floor(range(mean_var_df$means))
+
+sqrt(b/a)
+
+```
+
+
+
+```{r}
+
+m_idx = 1
+var_cutoff = 750000
+
+quadfunc2 <- function(t, a) (a*t^2+t)
+fulldata_fit2 <- nls(vars ~ quadfunc2(means,a), 
+                    data = mean_var_df %>% dplyr::filter( (markers==marker_list[m_idx])&(vars < var_cutoff)   ), start=list(a=1)   )
+fulldata_fit2_summary <- summary(fulldata_fit2)
+
+
+
+quadfunc3 <- function(t, a, b) (a*t^2+b)
+fulldata_fit3 <- nls(vars ~ quadfunc3(means,a,b),
+                    data = mean_var_df %>% dplyr::filter( (markers==marker_list[m_idx])&(vars < var_cutoff)   ), start=list(a=1, b=1))
+fulldata_fit3_summary <- summary(fulldata_fit3)
+
+
+
+quadfunc5 <- function(t, b) (t^2+b)
+fulldata_fit5 <- nls(vars ~ quadfunc5(means,b), 
+                     data = mean_var_df %>% dplyr::filter((markers==marker_list[m_idx])&(vars < var_cutoff)), 
+                     start=list( b=1))
+fulldata_fit5_summary <- summary(fulldata_fit5)
+
+
+
+
+
+ggm <- ggplot()+geom_point(data = mean_var_df %>% dplyr::filter((markers==marker_list[m_idx])&(vars < var_cutoff)     ), aes(x=means, y=vars), size = 0.5) + 
+  theme(axis.text.x = element_text(size = 12)) +
+  theme(axis.text.y = element_text(size = 12)) +
+  labs(title=paste("Mean v Variance.", marker_list[m_idx]))
+#gg1
+ggm + scale_y_continuous(trans="log10")
+
+
+xlims = floor(range(mean_var_df$means))
+a = fulldata_fit2_summary$coefficients[1]
+rse = fulldata_fit2_summary$sigma
+
+ggm + geom_line(data = data.frame(x=seq(xlims[1], xlims[2], by=1), y=(seq(xlims[1], xlims[2], by=1))^2*a + (0+1*seq(xlims[1], xlims[2], by=1))),  aes(x=x,y=y)) + labs(title=paste("Mean v Variance.", marker_list[m_idx], " ax^2+x,", "a=", round(a,2), "RSE=",round(rse,2) ))
+
+
+a = fulldata_fit3_summary$coefficients[1]
+b = fulldata_fit3_summary$coefficients[2]
+rse = fulldata_fit3_summary$sigma
+
+ggm + geom_line(data = data.frame(x=seq(xlims[1], xlims[2], by=1), y=(seq(xlims[1], xlims[2], by=1))^2*a + (b+0*seq(xlims[1], xlims[2], by=1))),  aes(x=x,y=y)) + labs(title=paste("Mean v Variance.", marker_list[m_idx], " ax^2+b,", "a=", round(a,2),"b=", round(b,2), "RSE=",round(rse,2) ))
+
+
+a = 1#fulldata_fit5_summary$coefficients[1]
+b = fulldata_fit5_summary$coefficients[1]
+rse = fulldata_fit5_summary$sigma
+
+ggm + geom_line(data = data.frame(x=seq(xlims[1], xlims[2], by=1), y=(seq(xlims[1], xlims[2], by=1))^2*a + (b+0*seq(xlims[1], xlims[2], by=1))),  aes(x=x,y=y)) + labs(title=paste("Mean v Variance.", marker_list[m_idx], " ax^2+b,", "a=", round(a,2),"b=", round(b,2), "RSE=",round(rse,2) ))
+
+```
+
+
+
+```{r}
+
+m_idx = 5
+
+
+quadfunc2 <- function(t, a) (a*t^2+t)
+fulldata_fit2 <- nls(vars ~ quadfunc2(means,a), 
+                    data = mean_var_df %>% dplyr::filter( (markers==marker_list[m_idx])&(vars < var_cutoff)   ), start=list(a=1)   )
+fulldata_fit2_summary <- summary(fulldata_fit2)
+
+
+
+quadfunc3 <- function(t, a, b) (a*t^2+b)
+fulldata_fit3 <- nls(vars ~ quadfunc3(means,a,b),
+                    data = mean_var_df %>% dplyr::filter( (markers==marker_list[m_idx])&(vars < var_cutoff)   ), start=list(a=1, b=1))
+fulldata_fit3_summary <- summary(fulldata_fit3)
+
+
+
+quadfunc5 <- function(t, b) (t^2+b)
+fulldata_fit5 <- nls(vars ~ quadfunc5(means,b), 
+                     data = mean_var_df %>% dplyr::filter((markers==marker_list[m_idx])&(vars < var_cutoff)), 
+                     start=list( b=1))
+fulldata_fit5_summary <- summary(fulldata_fit5)
+
+
+
+
+
+ggm <- ggplot()+geom_point(data = mean_var_df %>% dplyr::filter((markers==marker_list[m_idx])&(vars < var_cutoff)     ), aes(x=means, y=vars), size = 0.5) + 
+  theme(axis.text.x = element_text(size = 12)) +
+  theme(axis.text.y = element_text(size = 12)) +
+  labs(title=paste("Mean v Variance.", marker_list[m_idx]))
+#gg1
+ggm + scale_y_continuous(trans="log10")
+
+
+xlims = floor(range(mean_var_df$means))
+a = fulldata_fit2_summary$coefficients[1]
+rse = fulldata_fit2_summary$sigma
+
+ggm + geom_line(data = data.frame(x=seq(xlims[1], xlims[2], by=1), y=(seq(xlims[1], xlims[2], by=1))^2*a + (0+1*seq(xlims[1], xlims[2], by=1))),  aes(x=x,y=y)) + labs(title=paste("Mean v Variance.", marker_list[m_idx], " ax^2+x,", "a=", round(a,2), "RSE=",round(rse,2) ))
+
+
+a = fulldata_fit3_summary$coefficients[1]
+b = fulldata_fit3_summary$coefficients[2]
+rse = fulldata_fit3_summary$sigma
+
+ggm + geom_line(data = data.frame(x=seq(xlims[1], xlims[2], by=1), y=(seq(xlims[1], xlims[2], by=1))^2*a + (b+0*seq(xlims[1], xlims[2], by=1))),  aes(x=x,y=y)) + labs(title=paste("Mean v Variance.", marker_list[m_idx], " ax^2+b,", "a=", round(a,2),"b=", round(b,2), "RSE=",round(rse,2) ))
+
+
+a = 1#fulldata_fit5_summary$coefficients[1]
+b = fulldata_fit5_summary$coefficients[1]
+rse = fulldata_fit5_summary$sigma
+
+ggm + geom_line(data = data.frame(x=seq(xlims[1], xlims[2], by=1), y=(seq(xlims[1], xlims[2], by=1))^2*a + (b+0*seq(xlims[1], xlims[2], by=1))),  aes(x=x,y=y)) + labs(title=paste("Mean v Variance.", marker_list[m_idx], " ax^2+b,", "a=", round(a,2),"b=", round(b,2), "RSE=",round(rse,2) ))
+
+```
+
+
+
+
+
+```{r}
+
+m_idx = 25
+
+
+quadfunc2 <- function(t, a) (a*t^2+t)
+fulldata_fit2 <- nls(vars ~ quadfunc2(means,a), 
+                    data = mean_var_df %>% dplyr::filter( (markers==marker_list[m_idx])&(vars < var_cutoff)   ), start=list(a=1)   )
+fulldata_fit2_summary <- summary(fulldata_fit2)
+
+
+
+quadfunc3 <- function(t, a, b) (a*t^2+b)
+fulldata_fit3 <- nls(vars ~ quadfunc3(means,a,b),
+                    data = mean_var_df %>% dplyr::filter( (markers==marker_list[m_idx])&(vars < var_cutoff)   ), start=list(a=1, b=1))
+fulldata_fit3_summary <- summary(fulldata_fit3)
+
+
+
+quadfunc5 <- function(t, b) (t^2+b)
+fulldata_fit5 <- nls(vars ~ quadfunc5(means,b), 
+                     data = mean_var_df %>% dplyr::filter((markers==marker_list[m_idx])&(vars < var_cutoff)), 
+                     start=list( b=1))
+fulldata_fit5_summary <- summary(fulldata_fit5)
+
+
+
+
+
+ggm <- ggplot()+geom_point(data = mean_var_df %>% dplyr::filter((markers==marker_list[m_idx])&(vars < var_cutoff)     ), aes(x=means, y=vars), size = 0.5) + 
+  theme(axis.text.x = element_text(size = 12)) +
+  theme(axis.text.y = element_text(size = 12)) +
+  labs(title=paste("Mean v Variance.", marker_list[m_idx]))
+#gg1
+ggm + scale_y_continuous(trans="log10")
+
+
+xlims = floor(range(mean_var_df$means))
+a = fulldata_fit2_summary$coefficients[1]
+rse = fulldata_fit2_summary$sigma
+
+ggm + geom_line(data = data.frame(x=seq(xlims[1], xlims[2], by=1), y=(seq(xlims[1], xlims[2], by=1))^2*a + (0+1*seq(xlims[1], xlims[2], by=1))),  aes(x=x,y=y)) + labs(title=paste("Mean v Variance.", marker_list[m_idx], " ax^2+x,", "a=", round(a,2), "RSE=",round(rse,2) ))
+
+
+a = fulldata_fit3_summary$coefficients[1]
+b = fulldata_fit3_summary$coefficients[2]
+rse = fulldata_fit3_summary$sigma
+
+ggm + geom_line(data = data.frame(x=seq(xlims[1], xlims[2], by=1), y=(seq(xlims[1], xlims[2], by=1))^2*a + (b+0*seq(xlims[1], xlims[2], by=1))),  aes(x=x,y=y)) + labs(title=paste("Mean v Variance.", marker_list[m_idx], " ax^2+b,", "a=", round(a,2),"b=", round(b,2), "RSE=",round(rse,2) ))
+
+
+a = 1#fulldata_fit5_summary$coefficients[1]
+b = fulldata_fit5_summary$coefficients[1]
+rse = fulldata_fit5_summary$sigma
+
+ggm + geom_line(data = data.frame(x=seq(xlims[1], xlims[2], by=1), y=(seq(xlims[1], xlims[2], by=1))^2*a + (b+0*seq(xlims[1], xlims[2], by=1))),  aes(x=x,y=y)) + labs(title=paste("Mean v Variance.", marker_list[m_idx], " ax^2+b,", "a=", round(a,2),"b=", round(b,2), "RSE=",round(rse,2) ))
+
+```
+
+
+
+```{r}
+
+m_idx = 9
+
+
+quadfunc2 <- function(t, a) (a*t^2+t)
+fulldata_fit2 <- nls(vars ~ quadfunc2(means,a), 
+                    data = mean_var_df %>% dplyr::filter( (markers==marker_list[m_idx])&(vars < var_cutoff)   ), start=list(a=1)   )
+fulldata_fit2_summary <- summary(fulldata_fit2)
+
+
+
+quadfunc3 <- function(t, a, b) (a*t^2+b)
+fulldata_fit3 <- nls(vars ~ quadfunc3(means,a,b),
+                    data = mean_var_df %>% dplyr::filter( (markers==marker_list[m_idx])&(vars < var_cutoff)   ), start=list(a=1, b=1))
+fulldata_fit3_summary <- summary(fulldata_fit3)
+
+
+
+quadfunc5 <- function(t, b) (t^2+b)
+fulldata_fit5 <- nls(vars ~ quadfunc5(means,b), 
+                     data = mean_var_df %>% dplyr::filter((markers==marker_list[m_idx])&(vars < var_cutoff)), 
+                     start=list( b=1))
+fulldata_fit5_summary <- summary(fulldata_fit5)
+
+
+
+
+
+ggm <- ggplot()+geom_point(data = mean_var_df %>% dplyr::filter((markers==marker_list[m_idx])&(vars < var_cutoff)     ), aes(x=means, y=vars), size = 0.5) + 
+  theme(axis.text.x = element_text(size = 12)) +
+  theme(axis.text.y = element_text(size = 12)) +
+  labs(title=paste("Mean v Variance.", marker_list[m_idx]))
+#gg1
+ggm + scale_y_continuous(trans="log10")
+
+
+xlims = floor(range(mean_var_df$means))
+a = fulldata_fit2_summary$coefficients[1]
+rse = fulldata_fit2_summary$sigma
+
+ggm + geom_line(data = data.frame(x=seq(xlims[1], xlims[2], by=1), y=(seq(xlims[1], xlims[2], by=1))^2*a + (0+1*seq(xlims[1], xlims[2], by=1))),  aes(x=x,y=y)) + labs(title=paste("Mean v Variance.", marker_list[m_idx], " ax^2+x,", "a=", round(a,2), "RSE=",round(rse,2) ))
+
+
+a = fulldata_fit3_summary$coefficients[1]
+b = fulldata_fit3_summary$coefficients[2]
+rse = fulldata_fit3_summary$sigma
+
+ggm + geom_line(data = data.frame(x=seq(xlims[1], xlims[2], by=1), y=(seq(xlims[1], xlims[2], by=1))^2*a + (b+0*seq(xlims[1], xlims[2], by=1))),  aes(x=x,y=y)) + labs(title=paste("Mean v Variance.", marker_list[m_idx], " ax^2+b,", "a=", round(a,2),"b=", round(b,2), "RSE=",round(rse,2) ))
+
+
+a = 1#fulldata_fit5_summary$coefficients[1]
+b = fulldata_fit5_summary$coefficients[1]
+rse = fulldata_fit5_summary$sigma
+
+ggm + geom_line(data = data.frame(x=seq(xlims[1], xlims[2], by=1), y=(seq(xlims[1], xlims[2], by=1))^2*a + (b+0*seq(xlims[1], xlims[2], by=1))),  aes(x=x,y=y)) + labs(title=paste("Mean v Variance.", marker_list[m_idx], " ax^2+b,", "a=", round(a,2),"b=", round(b,2), "RSE=",round(rse,2) ))
+
+```
+
+
+
+
+
+
+```{r}
+
+m_idx = 21
+
+
+quadfunc2 <- function(t, a) (a*t^2+t)
+fulldata_fit2 <- nls(vars ~ quadfunc2(means,a), 
+                    data = mean_var_df %>% dplyr::filter( (markers==marker_list[m_idx])&(vars < var_cutoff)   ), start=list(a=1)   )
+fulldata_fit2_summary <- summary(fulldata_fit2)
+
+
+
+quadfunc3 <- function(t, a, b) (a*t^2+b)
+fulldata_fit3 <- nls(vars ~ quadfunc3(means,a,b),
+                    data = mean_var_df %>% dplyr::filter( (markers==marker_list[m_idx])&(vars < var_cutoff)   ), start=list(a=1, b=1))
+fulldata_fit3_summary <- summary(fulldata_fit3)
+
+
+
+quadfunc5 <- function(t, b) (t^2+b)
+fulldata_fit5 <- nls(vars ~ quadfunc5(means,b), 
+                     data = mean_var_df %>% dplyr::filter((markers==marker_list[m_idx])&(vars < var_cutoff)), 
+                     start=list( b=1))
+fulldata_fit5_summary <- summary(fulldata_fit5)
+
+
+
+
+
+ggm <- ggplot()+geom_point(data = mean_var_df %>% dplyr::filter((markers==marker_list[m_idx])&(vars < var_cutoff)     ), aes(x=means, y=vars), size = 0.5) + 
+  theme(axis.text.x = element_text(size = 12)) +
+  theme(axis.text.y = element_text(size = 12)) +
+  labs(title=paste("Mean v Variance.", marker_list[m_idx]))
+#gg1
+ggm + scale_y_continuous(trans="log10")
+
+
+xlims = floor(range(mean_var_df$means))
+a = fulldata_fit2_summary$coefficients[1]
+rse = fulldata_fit2_summary$sigma
+
+ggm + geom_line(data = data.frame(x=seq(xlims[1], xlims[2], by=1), y=(seq(xlims[1], xlims[2], by=1))^2*a + (0+1*seq(xlims[1], xlims[2], by=1))),  aes(x=x,y=y)) + labs(title=paste("Mean v Variance.", marker_list[m_idx], " ax^2+x,", "a=", round(a,2), "RSE=",round(rse,2) ))
+
+
+a = fulldata_fit3_summary$coefficients[1]
+b = fulldata_fit3_summary$coefficients[2]
+rse = fulldata_fit3_summary$sigma
+
+ggm + geom_line(data = data.frame(x=seq(xlims[1], xlims[2], by=1), y=(seq(xlims[1], xlims[2], by=1))^2*a + (b+0*seq(xlims[1], xlims[2], by=1))),  aes(x=x,y=y)) + labs(title=paste("Mean v Variance.", marker_list[m_idx], " ax^2+b,", "a=", round(a,2),"b=", round(b,2), "RSE=",round(rse,2) ))
+
+
+a = 1#fulldata_fit5_summary$coefficients[1]
+b = fulldata_fit5_summary$coefficients[1]
+rse = fulldata_fit5_summary$sigma
+
+ggm + geom_line(data = data.frame(x=seq(xlims[1], xlims[2], by=1), y=(seq(xlims[1], xlims[2], by=1))^2*a + (b+0*seq(xlims[1], xlims[2], by=1))),  aes(x=x,y=y)) + labs(title=paste("Mean v Variance.", marker_list[m_idx], " ax^2+b,", "a=", round(a,2),"b=", round(b,2), "RSE=",round(rse,2) ))
+
+```
+
+
+
+```{r}
+
+gg <- ggplot()+geom_point(data = mean_var_df %>% dplyr::filter(vars <100000), aes(x=means, y=vars)) + labs(title=paste("Mean v Variance"))+
+  theme(axis.text.x = element_text(size = 12)) +  theme(axis.text.y = element_text(size = 12)) 
+gg
+
+gg <- ggplot()+geom_point(data = mean_var_df %>% dplyr::filter(vars <25000), aes(x=means, y=vars)) + labs(title=paste("Mean v Variance"))+
+  theme(axis.text.x = element_text(size = 12)) +  theme(axis.text.y = element_text(size = 12)) 
+gg
+
+
+gg <- ggplot()+geom_point(data = mean_var_df %>% dplyr::filter(vars <10000), aes(x=means, y=vars)) + labs(title=paste("Mean v Variance"))+
+  theme(axis.text.x = element_text(size = 12)) +  theme(axis.text.y = element_text(size = 12)) 
+gg
+
+
+gg <- ggplot()+geom_point(data = mean_var_df %>% dplyr::filter((vars <2500)&(means <60)), aes(x=means, y=vars)) + labs(title=paste("Mean v Variance"))+
+  theme(axis.text.x = element_text(size = 12)) +  theme(axis.text.y = element_text(size = 12)) 
+gg
+
+
+quadfunc2 <- function(t, a) (a*t^2+t)
+fit5_sel <- nls(vars ~ quadfunc2(means,a), data=mean_var_df, start=list(a=1))
+summary(fit5_sel)
+
+
+
+quadfunc2 <- function(t, a) (a*t^2+t)
+fit6_sel <- nls(vars ~ quadfunc2(means,a), data = mean_var_df %>% dplyr::filter((vars <10000)&(means <1000)), start=list(a=1))
+summary(fit6_sel)
+
+gg + geom_line(data = data.frame(x=seq(0, 90, by=1), y=(seq(0, 90, by=1))^2*0.7147 + (seq(0, 90, by=1))),  aes(x=x,y=y)) +
+  geom_line(data = data.frame(x=seq(0, 90, by=1), y=(seq(0, 90, by=1))^2*2.1609 + (seq(0, 90, by=1))),  aes(x=x,y=y))
+
+
+
+```
+
+
+```{r}
+
+a=  2.16
+
+sce@assays@data$exprs <- 2/sqrt(a)*asinh(sqrt(a*sce@assays@data$counts))
+
+
+mean_var_convrt <- lapply(pair_list, function(s_m){
+
+  index_2_use <- which(sce$sample_id==as.character(s_m[1]))
+  m = as.character(s_m[2])
+  return <- c(mean(sce@assays@data$exprs[m,index_2_use]), var(sce@assays@data$exprs[m,index_2_use]))
+  #return <- c(median(sce@assays@data$counts[m,]), var(sce@assays@data$counts[m,]))
+
+})
+
+
+mean_var_unlist <- unlist(mean_var_convrt)
+
+mean_var_convrt_df <- data.frame(means = mean_var_unlist[seq(1,length(mean_var_unlist), by=2)], vars = mean_var_unlist[seq(2,length(mean_var_unlist), by=2)], markers = marker_list)
+
+
+gg <- ggplot()+geom_point(data = mean_var_convrt_df, aes(x=means, y=vars)) + labs(title=paste("Mean v Variance"))+
+  theme(axis.text.x = element_text(size = 12)) +  theme(axis.text.y = element_text(size = 12)) 
+gg
+
+```
+
+
+
+```{r}
+
+a=  0.703
+
+sce@assays@data$exprs <- 2/sqrt(a)*asinh(sqrt(a*sce@assays@data$counts))
+
+
+mean_var_convrt <- lapply(pair_list, function(s_m){
+
+  index_2_use <- which(sce$sample_id==as.character(s_m[1]))
+  m = as.character(s_m[2])
+  return <- c(mean(sce@assays@data$exprs[m,index_2_use]), var(sce@assays@data$exprs[m,index_2_use]))
+  #return <- c(median(sce@assays@data$counts[m,]), var(sce@assays@data$counts[m,]))
+
+})
+
+
+mean_var_unlist <- unlist(mean_var_convrt)
+
+mean_var_convrt_df <- data.frame(means = mean_var_unlist[seq(1,length(mean_var_unlist), by=2)], vars = mean_var_unlist[seq(2,length(mean_var_unlist), by=2)], markers = marker_list)
+
+
+gg <- ggplot()+geom_point(data = mean_var_convrt_df, aes(x=means, y=vars)) + labs(title=paste("Mean v Variance"))+
+  theme(axis.text.x = element_text(size = 12)) +  theme(axis.text.y = element_text(size = 12)) 
+gg
+
+```
+
+
+
+```{r}
+
+
+
+
+```
+
+
+
+
+
+```{r}
+
+marker_list <- setdiff(type_markers(sce), c("CD123", "CD45", "CD3", "CD38", "IgM", "pSTAT3", "HLADR"))
+marker_list <- setdiff(type_markers(sce), c())
+marker_list <- setdiff(type_markers(sce), c("CD123", "CD45", "CD3"))
+marker_list <- setdiff(type_markers(sce), c("CD45", "CD3"))
+mean_var <- lapply(marker_list, function(m){
+
+
+
+  return <- c(mean(sce@assays@data$counts[m,]), var(sce@assays@data$counts[m,]))
+  #return <- c(median(sce@assays@data$counts[m,]), var(sce@assays@data$counts[m,]))
+
+})
+
+
+mean_var_unlist <- unlist(mean_var)
+
+mean_var_df <- data.frame(means = mean_var_unlist[seq(1,length(mean_var_unlist), by=2)], vars = mean_var_unlist[seq(2,length(mean_var_unlist), by=2)], markers = marker_list)
+
+
+gg <- ggplot()+geom_point(data = mean_var_df, aes(x=means, y=vars)) + labs(title=paste("Mean v Variance"))+
+  theme(axis.text.x = element_text(size = 12)) +  theme(axis.text.y = element_text(size = 12)) 
+gg
+
+```
+
+
+
+```{r}
+# T cell marker list
+
+panel_read_tcell <- read_csv("../../paneldata_rh2cava_tcells_16type.csv")
+
+tcell_panel_list <- panel_read_tcell$antigen[panel_read_tcell$marker_class %in% c("type", "state")]
+
+mean_var_df_tcell <- mean_var_df %>% dplyr::filter(markers %in% tcell_panel_list )
+
+
+gg <- ggplot()+geom_point(data = mean_var_df_tcell, aes(x=means, y=vars))
+gg 
+
+
+linfunc <- function(t, a, b) (a*t+b)
+fit1 <- nls(vars ~ linfunc(means,a,b), data=mean_var_df_tcell, start=list(a=1,b=1))
+summary(fit1)
+
+gg + geom_line(data = data.frame(x=seq(0, 70, by=1), y=(seq(0, 70, by=1))^1*42.98 + 442.11), 
+                     aes(x=x,y=y))
+  
+  
+quadfunc <- function(t, a, b) (a*t^2+b)
+fit2 <- nls(vars ~ quadfunc(means,a,b), data=mean_var_df_tcell, start=list(a=1,b=1))
+summary(fit2)
+
+gg + geom_line(data = data.frame(x=seq(0, 70, by=1), y=(seq(0, 70, by=1))^1*42.98 + 442.11), 
+               aes(x=x,y=y)) +
+  geom_line(data = data.frame(x=seq(0, 70, by=1), y=(seq(0, 70, by=1))^2*0.7111 + 708.7297), 
+            aes(x=x,y=y))
+
+
+
+quadfunc2 <- function(t, a) (a*t^2+t)
+fit4_sel <- nls(vars ~ quadfunc2(means,a), data=mean_var_df_tcell, start=list(a=1))
+summary(fit4_sel)
+
+gg + geom_line(data = data.frame(x=seq(0, 70, by=1), y=(seq(0, 70, by=1))^2*0.9585 + (seq(0, 70, by=1))),  aes(x=x,y=y))
+
+
+
+
+```
+
+```{r}
+
+mean_var_df_tcell$markers
+
+a=0.9585
+
+dim(sce@assays@data$counts[mean_var_df_tcell$markers,])
+
+transformed_data <- 2/sqrt(a)*asinh(sqrt(a*sce@assays@data$counts[mean_var_df_tcell$markers,]))
+
+rownames(transformed_data)
+
+
+mean_var_tfdata <- lapply(rownames(transformed_data), function(m){
+
+
+
+  return <- c(mean(transformed_data[m,]), var(transformed_data[m,]))
+  #return <- c(median(sce@assays@data$counts[m,]), var(sce@assays@data$counts[m,]))
+
+})
+
+
+mean_var_unlist <- unlist(mean_var_tfdata)
+
+mean_var_tfdata_df <- data.frame(means = mean_var_unlist[seq(1,length(mean_var_unlist), by=2)], vars = mean_var_unlist[seq(2,length(mean_var_unlist), by=2)], markers = rownames(transformed_data))
+
+gg <- ggplot()+geom_point(data = mean_var_tfdata_df, aes(x=means, y=vars)) + labs(title=paste("Mean v Variance"))+
+  theme(axis.text.x = element_text(size = 12)) +  theme(axis.text.y = element_text(size = 12)) 
+gg
+```
+
+
+
+```{r}
+
+selected_marker_index <- which(mean_var_df_tcell$markers %in% c("CD38", "pSTAT3", "HLADR"))
+  
+mean_var_df_tcell_selected <- mean_var_df_tcell[-selected_marker_index,]
+
+gg1 <- ggplot()+geom_point(data = mean_var_df_tcell_selected, aes(x=means, y=vars))
+gg1
+
+
+
+
+
+linfunc <- function(t, a, b) (a*t+b)
+fit1_sel <- nls(vars ~ linfunc(means,a,b), data=mean_var_df_tcell_selected, start=list(a=1,b=1))
+summary(fit1_sel)
+
+gg1 + geom_line(data = data.frame(x=seq(0, 70, by=1), y=(seq(0, 70, by=1))^1*55.629 -145.686), 
+                     aes(x=x,y=y))
+  
+  
+quadfunc <- function(t, a, b) (a*t^2+b)
+fit2_sel <- nls(vars ~ quadfunc(means,a,b), data=mean_var_df_tcell_selected, start=list(a=1,b=1))
+summary(fit2_sel)
+
+gg1 + geom_line(data = data.frame(x=seq(0, 70, by=1), y=(seq(0, 70, by=1))^1*55.629 -145.686), 
+               aes(x=x,y=y)) +
+  geom_line(data = data.frame(x=seq(0, 70, by=1), y=(seq(0, 70, by=1))^2*0.87629 + 229.var_cutoff3), 
+            aes(x=x,y=y))
+
+
+
+
+quadfunc2 <- function(t, a) (a*t^2+t)
+fit3_sel <- nls(vars ~ quadfunc2(means,a), data=mean_var_df_tcell_selected, start=list(a=1))
+summary(fit3_sel)
+
+gg1 + geom_line(data = data.frame(x=seq(0, 70, by=1), y=(seq(0, 70, by=1))^2*0.94358 + (seq(0, 70, by=1))),  aes(x=x,y=y))
+
+
+
+
+gg <- gg + geom_line(data = data.frame(x=seq(0, 25, by=1), y=(seq(0, 25, by=1))^2*1.3154 + 169.1738), 
+                     aes(x=x,y=y))
+
+gg <- gg + geom_line(data = data.frame(x=seq(0, 25, by=1), y=(seq(0, 25, by=1))^1*35.291 + 18.376), 
+                     aes(x=x,y=y))
+gg  
+  
+gg1 <- ggplot(data = mean_var_df_tcell, aes(x=markers, y=means))+geom_point()
+gg2 <- ggplot(data = mean_var_df_tcell, aes(x=markers, y=vars))+geom_point()
+
+gg1
+gg2
+
+```
+
+
+```{r}
+
+mean_var_df_tcell_selected$markers
+
+a=0.94358 
+
+dim(sce@assays@data$counts[mean_var_df_tcell_selected$markers,])
+
+transformed_data <- 2/sqrt(a)*asinh(sqrt(a*sce@assays@data$counts[mean_var_df_tcell_selected$markers,]))
+
+rownames(transformed_data)
+
+
+mean_var_tfdata <- lapply(rownames(transformed_data), function(m){
+
+
+
+  return <- c(mean(transformed_data[m,]), var(transformed_data[m,]))
+  #return <- c(median(sce@assays@data$counts[m,]), var(sce@assays@data$counts[m,]))
+
+})
+
+
+mean_var_unlist <- unlist(mean_var_tfdata)
+
+mean_var_tfdata_df <- data.frame(means = mean_var_unlist[seq(1,length(mean_var_unlist), by=2)], vars = mean_var_unlist[seq(2,length(mean_var_unlist), by=2)], markers = rownames(transformed_data))
+
+gg <- ggplot()+geom_point(data = mean_var_tfdata_df, aes(x=means, y=vars)) + labs(title=paste("Mean v Variance"))+
+  theme(axis.text.x = element_text(size = 12)) +  theme(axis.text.y = element_text(size = 12)) 
+gg
+```
+
+
+
+
+
+
+```{r}
+
+selected_marker_index <- which(mean_var_df_tcell$markers %in% c("CD38", "pSTAT3", "HLADR", "CD27", "CD127"))
+  
+mean_var_df_tcell_selected2 <- mean_var_df_tcell[-selected_marker_index,]
+
+gg2 <- ggplot()+geom_point(data = mean_var_df_tcell_selected2, aes(x=means, y=vars))
+gg2
+
+quadfunc <- function(t, a, b) (a*t^2+b)
+fit2_sel2 <- nls(vars ~ quadfunc(means,a,b), data=mean_var_df_tcell_selected2, start=list(a=1,b=1))
+summary(fit2_sel2)
+
+gg2 + geom_line(data = data.frame(x=seq(0, 30, by=1), y=(seq(0, 30, by=1))^2*1.3612 + 149.9017), 
+            aes(x=x,y=y))
+
+
+quadfunc <- function(t, a) (a*t^2+0)
+fit2_sel3 <- nls(vars ~ quadfunc(means,a), data=mean_var_df_tcell_selected2, start=list(a=1))
+summary(fit2_sel3)
+
+gg2 + geom_line(data = data.frame(x=seq(0, 30, by=1), y=(seq(0, 30, by=1))^2*1.3612 + 149.9017), 
+            aes(x=x,y=y))
+
+
+```
+
+
+
+
+
+```{r}
+
+linfunc <- function(t, a, b) (a*t+b)
+fit1 <- nls(vars ~ linfunc(means,a,b), data=mean_var_df_tcell, start=list(a=1,b=1))
+summary(fit1)
+
+
+quadfunc <- function(t, a, b) (a*t^2+b)
+fit2 <- nls(vars ~ quadfunc(means,a,b), data=mean_var_df_tcell, start=list(a=1,b=1))
+summary(fit2)
+
+
+# fit2 <- lm(vars~poly(means,2,raw=TRUE), data=mean_var_df)
+# summary(fit2)
+# 
+
+```
+
+
+
+
+
+
+```{r}
+quadfunc <- function(t, a, b) (a*t^2+b)
+fit1 <- nls(vars ~ quadfunc(means,a,b), data=mean_var_df, start=list(a=1,b=0))
+
+fit2 <- lm(vars~poly(means,2,raw=TRUE), data=mean_var_df)
+summary(fit2)
+
+```
+
+
+
+
+
+
+```{r}
+sample_list <- metadata$sample_id
+
+marker_list <- setdiff(type_markers(sce), c("CD45", "CD3"))
+
+
+pair_of_s_m <- expand.grid(sample_list, marker_list)
+ 
+
+pair_list <- lapply(1:4752, function(ii){
+  
+  return <- c(pair_of_s_m[ii, 1],pair_of_s_m[ii, 2])
+  
+})
+
+mean_var <- lapply(pair_list, function(s_m){
+
+  index_2_use <- which(sce$sample_id==as.character(s_m[1]))
+  m = as.character(s_m[2])
+  return <- c(mean(sce@assays@data$counts[m,index_2_use]), var(sce@assays@data$counts[m,index_2_use]))
+  #return <- c(median(sce@assays@data$counts[m,]), var(sce@assays@data$counts[m,]))
+
+})
+
+
+mean_var_unlist <- unlist(mean_var)
+
+mean_var_df <- data.frame(means = mean_var_unlist[seq(1,length(mean_var_unlist), by=2)], vars = mean_var_unlist[seq(2,length(mean_var_unlist), by=2)], markers = marker_list)
+
+
+# gg <- ggplot()+geom_point(data = mean_var_df, aes(x=means, y=log10(vars+1))) + labs(title=paste("Mean v Variance"))+
+#   theme(axis.text.x = element_text(size = 12)) +  theme(axis.text.y = element_text(size = 12)) 
+# gg
+
+
+gg <- ggplot()+geom_point(data = mean_var_df, aes(x=means, y=vars)) + labs(title=paste("Mean v Variance"))+
+  theme(axis.text.x = element_text(size = 12)) +  theme(axis.text.y = element_text(size = 12)) 
+gg
+
+
+gg <- ggplot()+geom_point(data = mean_var_df %>% dplyr::filter(vars <100000), aes(x=means, y=vars)) + labs(title=paste("Mean v Variance"))+
+  theme(axis.text.x = element_text(size = 12)) +  theme(axis.text.y = element_text(size = 12)) 
+gg
+
+gg <- ggplot()+geom_point(data = mean_var_df %>% dplyr::filter(vars <25000), aes(x=means, y=vars)) + labs(title=paste("Mean v Variance"))+
+  theme(axis.text.x = element_text(size = 12)) +  theme(axis.text.y = element_text(size = 12)) 
+gg
+
+
+gg <- ggplot()+geom_point(data = mean_var_df %>% dplyr::filter(vars <10000), aes(x=means, y=vars)) + labs(title=paste("Mean v Variance"))+
+  theme(axis.text.x = element_text(size = 12)) +  theme(axis.text.y = element_text(size = 12)) 
+gg
+
+
+gg <- ggplot()+geom_point(data = mean_var_df %>% dplyr::filter((vars <2500)&(means <60)), aes(x=means, y=vars)) + labs(title=paste("Mean v Variance"))+
+  theme(axis.text.x = element_text(size = 12)) +  theme(axis.text.y = element_text(size = 12)) 
+gg
+
+
+quadfunc <- function(t, a, b) (a*t^2+b)
+fit1_sel <- nls(vars ~ quadfunc(means,a, b), data=mean_var_df, start=list(a=1, b=1))
+summary(fit1_sel)
+
+gg + geom_line(data = data.frame(x=seq(0, 90, by=1), y=(seq(0, 90, by=1))^2*1.3413 + 2649.3130),  aes(x=x,y=y))
+
+
+quadfunc2 <- function(t, a) (a*t^2+t)
+fit5_sel <- nls(vars ~ quadfunc2(means,a), data=mean_var_df, start=list(a=1))
+summary(fit5_sel)
+
+
+
+quadfunc2 <- function(t, a) (a*t^2+t)
+fit6_sel <- nls(vars ~ quadfunc2(means,a), data = mean_var_df %>% dplyr::filter((vars <10000)&(means <1000)), start=list(a=1))
+summary(fit6_sel)
+
+gg + geom_line(data = data.frame(x=seq(0, 90, by=1), y=(seq(0, 90, by=1))^2*0.7147 + (seq(0, 90, by=1))),  aes(x=x,y=y)) +
+  geom_line(data = data.frame(x=seq(0, 90, by=1), y=(seq(0, 90, by=1))^2*2.1609 + (seq(0, 90, by=1))),  aes(x=x,y=y))
+
+
+
+```

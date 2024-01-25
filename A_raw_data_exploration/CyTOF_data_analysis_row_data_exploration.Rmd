@@ -1,0 +1,1268 @@
+---
+title: "CyTOF analysis with graph variables saving"
+output: html_notebook
+---
+
+#IF running R/4.2
+```{r}
+.libPaths("/project/mcnamara-lab/myles_kim/R_library/4.2")
+```
+
+
+
+#clear all and load libraries
+```{r, message=FALSE}
+#rm(list = ls())
+library(readxl, quietly = T)
+library(tidyverse, quietly = T)
+library(CATALYST, quietly = T)
+library(FlowSOM, quietly = T)
+library(flowCore, quietly = T)
+library(igraph, quietly = T)
+library(uwot, quietly = T)
+library(ggpubr)
+#library(tictoc) Never use this
+#library(leiden) #this asks a question. Can I provide 'yes' as default?
+```
+
+
+#Read panel info
+```{r}
+#panel_read <- read_csv("/project/mcnamara-lab/myles_kim/RedHart2_v_CAVA/panelfile_RH2vCAVA_tcelll.csv")
+#save(panel_read, file = "paneldata.RData")
+panel_read <- read_csv("../panelfile_nometal_draft1.csv")
+
+#panel_read[31,3]="type" #CD27 as type
+
+table(panel_read$marker_class)
+
+
+```
+
+
+
+#Read or make metadata
+```{r}
+
+#load("./metadata.RData")
+
+data_folder <- "/project/mcnamara-lab/FCS_folder/REDHART2_v_CAVA/New Subpopulation Export JC/Tcells_colfixed/"
+
+files_fcs <- list.files(data_folder, pattern = "fcs$")
+
+metadata = data.frame(file_name = files_fcs)
+metadata$sample_id = gsub("Colfixed_", "", files_fcs)
+metadata$sample_id = gsub(".fcs", "", metadata$sample_id)
+
+patient_id1 = stringr::str_match(files_fcs, "[1-9][0-9][0-9][0-9]")[,1] 
+patient_id1[which(is.na(patient_id1))] = 
+  stringr::str_match(files_fcs[which(is.na(patient_id1))], "[1-9][0-9][0-9]")[,1] 
+patient_id1[which(is.na(patient_id1))] =
+  stringr::str_match(files_fcs[which(is.na(patient_id1))], "HBO19")[,1]
+
+metadata$patient_id = patient_id1
+
+rm(patient_id1)
+
+metadata$condition = "VEH"
+metadata$condition[  which(!is.na(stringr::str_match(files_fcs, "US")[,1]))  ] <- "VEH"
+metadata$condition[  which(!is.na(stringr::str_match(files_fcs, "VEH")[,1]))  ] <- "VEH"
+metadata$condition[  which(!is.na(stringr::str_match(files_fcs, "IL-1b")[,1]))  ] <- "IL1b"
+metadata$condition[  which(!is.na(stringr::str_match(files_fcs, "IL-6")[,1]))  ] <- "IL6"
+
+
+save(metadata, file = "metadata.RData")
+```
+
+
+
+#Read FCS's into sce
+```{r}
+
+sce <- prepData(data_folder, panel = panel_read, md = metadata, features = panel_read$fcs_colname)
+Sys.time()
+
+```
+
+```{r}
+
+
+m = "CD8"
+count_data = sce@assays@data$counts[m,]
+
+
+df_count_data_q100 <- as.data.frame(count_data)
+
+ggplot(  df_count_data_q100, aes(x= asinh(count_data/0.1)   )   ) + 
+    geom_histogram(aes(y=..density..),bins=87, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "New"))
+
+ggplot(  df_count_data_q100, aes(x= asinh(count_data/0.01)   )   ) + 
+    geom_histogram(aes(y=..density..),bins=87, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "New"))
+
+ggplot(  df_count_data_q100, aes(x= asinh(count_data/0.001)   )   ) + 
+    geom_histogram(aes(y=..density..),bins=87, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "New"))
+
+ggplot(  df_count_data_q100, aes(x= log((count_data+1)/0.01)   )   ) + 
+    geom_histogram(aes(y=..density..),bins=87, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "New"))
+
+```
+
+
+
+```{r}
+
+#cofactors <- readRDS("../Various_cofactors_for_asinh.rds")
+all_markers <- c(type_markers(sce), state_markers(sce))
+
+
+
+
+q95_all_markers <- lapply(all_markers, function(m){
+  
+  q95 <- quantile(sce@assays@data$counts[m,], probs = 0.95)
+  
+})
+
+q95_point <- data.frame(marker = all_markers, q95 = unlist(q95_all_markers))
+
+
+q95_point$cofactor <- 1
+for (ii in 1:length(q95_point$cofactor)){
+  
+  q95_point$cofactor[ii] <- sort(c(1, 5, q95_point$q95[ii]/10))[2]  
+  
+}
+
+save(q95_point, file = "q95_cofactor.Rdata")
+```
+
+
+
+
+#Two transformation comparison
+```{r}
+
+#ii = 0
+#p_list <- list()
+# all_markers = c(type_markers(sce), state_markers(sce))
+# #m=all_markers[1]
+# 
+# p_list <- lapply(all_markers, function(m){
+#   
+#   
+#   count_data = sce@assays@data$counts[m,]
+#   q95 <- quantile(count_data, probs = c(0.95))
+#   
+#   df_count_data_q100 <- as.data.frame(count_data)
+#   
+# 
+#   p_list_temp <- ggplot(  df_count_data_q100, aes(x=asinh(count_data/(q95/10)  ) )   ) + 
+#     geom_histogram(aes(y=..density..),bins=51, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /Q95@2.99)"))
+#   
+#   
+# })
+#   
+#   
+# 
+# q_list <- lapply(all_markers, function(m){
+#   
+#   
+#   count_data = sce@assays@data$counts[m,]
+#   q95 <- quantile(count_data, probs = c(0.95))
+#   
+#   df_count_data_q100 <- as.data.frame(count_data)
+#   
+# 
+#   q_list_temp <- ggplot(  df_count_data_q100, aes(x=log10(count_data/(q95/10)+1) )   ) + 
+#     geom_histogram(aes(y=..density..),bins=51, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: log10( /(q95/10) + 1)"))
+#   
+#   
+# })
+# 
+# fig_list = list()
+# 
+# for (ii in 1:length(q_list)){
+#   
+#   
+#      fig_list[[2*ii-1]] = p_list[[ii]]
+#      fig_list[[2*ii]] = q_list[[ii]]
+# }
+# 
+# # 
+# p <- ggarrange(plotlist = fig_list, common.legend = T, ncol = 2, nrow = 12)  #, ncol = 6
+# 
+# pdf(paste0("two_transformation_comparison.pdf"), height = 24, width = 12)
+# p
+# dev.off()
+# 
+# p_list[[1]]
+# 
+# ggplot(  df_count_data_q100, aes(x=asinh(count_data/(q95/10)  ) )   ) + 
+#     geom_histogram(aes(y=..density..),bins=51, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /Q95@2.99)"))
+  
+
+
+```
+
+
+
+
+#Two transformation comparison #-1/3
+```{r}
+
+
+a = 2.1609
+#ii = 0
+#p_list <- list()
+all_markers = c(type_markers(sce), state_markers(sce))
+#m=all_markers[1]
+
+p_list <- lapply(all_markers, function(m){
+  
+  
+  count_data = sce@assays@data$counts[m,]
+  q95 <- quantile(count_data, probs = c(0.95))
+  
+  df_count_data_q100 <- as.data.frame(count_data)
+  
+
+  # p_list_temp <- ggplot(  df_count_data_q100, aes(x=asinh(count_data/(q95/10)  ) )   ) + 
+  #   geom_histogram(aes(y=..density..),bins=51, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /Q95@2.99)"))
+  
+    p_list_temp <- ggplot(  df_count_data_q100, aes(x=(2/a)*asinh( sqrt(a*count_data)  ) )   ) + 
+    geom_histogram(aes(y=..density..),bins=51, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "New"))
+  
+  
+})
+  
+  
+
+q_list <- lapply(all_markers, function(m){
+  
+  
+  count_data = sce@assays@data$counts[m,]
+  q95 <- quantile(count_data, probs = c(0.95))
+  
+  df_count_data_q100 <- as.data.frame(count_data)
+  
+
+  # q_list_temp <- ggplot(  df_count_data_q100, aes(x=log10(count_data/(q95/10)+1) )   ) + 
+  #   geom_histogram(aes(y=..density..),bins=51, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: log10( /(q95/10) + 1)"))
+  
+  
+  q_list_temp <- ggplot(  df_count_data_q100, aes(x=asinh(count_data/(q95/10)  ) )   ) + 
+    geom_histogram(aes(y=..density..),bins=51, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /Q95@2.99)"))
+
+  
+})
+
+fig_list = list()
+
+for (ii in 1:length(q_list)){
+  
+  
+     fig_list[[2*ii-1]] = p_list[[ii]]
+     fig_list[[2*ii]] = q_list[[ii]]
+}
+
+# 
+p <- ggarrange(plotlist = fig_list, common.legend = T, ncol = 2, nrow = 12)  #, ncol = 6
+
+pdf(paste0("two_transformation_comparison_sqrt2_v_q95over10_1.pdf"), height = 24, width = 12)
+p
+dev.off()
+# 
+# p_list[[1]]
+# 
+# ggplot(  df_count_data_q100, aes(x=asinh(count_data/(q95/10)  ) )   ) + 
+#     geom_histogram(aes(y=..density..),bins=51, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /Q95@2.99)"))
+  
+
+
+```
+
+
+#Two transformation comparison #0/3
+```{r}
+
+#ii = 0
+#p_list <- list()
+all_markers = c(type_markers(sce), state_markers(sce))
+#m=all_markers[1]
+
+p_list <- lapply(all_markers, function(m){
+  
+  
+  count_data = sce@assays@data$counts[m,]
+  q95 <- quantile(count_data, probs = c(0.95))
+  
+  df_count_data_q100 <- as.data.frame(count_data)
+  
+
+  # p_list_temp <- ggplot(  df_count_data_q100, aes(x=asinh(count_data/(q95/10)  ) )   ) + 
+  #   geom_histogram(aes(y=..density..),bins=51, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /Q95@2.99)"))
+  
+    p_list_temp <- ggplot(  df_count_data_q100, aes(x=(2/0.95)*asinh( sqrt(0.95*count_data)  ) )   ) + 
+    geom_histogram(aes(y=..density..),bins=51, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "New"))
+  
+  
+})
+  
+  
+
+q_list <- lapply(all_markers, function(m){
+  
+  
+  count_data = sce@assays@data$counts[m,]
+  q95 <- quantile(count_data, probs = c(0.95))
+  
+  df_count_data_q100 <- as.data.frame(count_data)
+  
+
+  # q_list_temp <- ggplot(  df_count_data_q100, aes(x=log10(count_data/(q95/10)+1) )   ) + 
+  #   geom_histogram(aes(y=..density..),bins=51, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: log10( /(q95/10) + 1)"))
+  
+  
+  q_list_temp <- ggplot(  df_count_data_q100, aes(x=asinh(count_data/(q95/10)  ) )   ) + 
+    geom_histogram(aes(y=..density..),bins=51, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /Q95@2.99)"))
+
+  
+})
+
+fig_list = list()
+
+for (ii in 1:length(q_list)){
+  
+  
+     fig_list[[2*ii-1]] = p_list[[ii]]
+     fig_list[[2*ii]] = q_list[[ii]]
+}
+
+# 
+p <- ggarrange(plotlist = fig_list, common.legend = T, ncol = 2, nrow = 12)  #, ncol = 6
+
+pdf(paste0("two_transformation_comparison_sqrt_v_q95over10.pdf"), height = 24, width = 12)
+p
+dev.off()
+# 
+# p_list[[1]]
+# 
+# ggplot(  df_count_data_q100, aes(x=asinh(count_data/(q95/10)  ) )   ) + 
+#     geom_histogram(aes(y=..density..),bins=51, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /Q95@2.99)"))
+  
+
+
+```
+
+
+
+#Two transformation comparison #1/3
+```{r}
+
+#ii = 0
+#p_list <- list()
+all_markers = c(type_markers(sce), state_markers(sce))
+#m=all_markers[1]
+
+p_list <- lapply(all_markers, function(m){
+  
+  
+  count_data = sce@assays@data$counts[m,]
+  q95 <- quantile(count_data, probs = c(0.95))
+  
+  df_count_data_q100 <- as.data.frame(count_data)
+  
+
+  # p_list_temp <- ggplot(  df_count_data_q100, aes(x=asinh(count_data/(q95/10)  ) )   ) + 
+  #   geom_histogram(aes(y=..density..),bins=51, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /Q95@2.99)"))
+  
+    p_list_temp <- ggplot(  df_count_data_q100, aes(x=asinh(count_data/(5)  ) )   ) + 
+    geom_histogram(aes(y=..density..),bins=51, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /5)"))
+  
+  
+})
+  
+  
+
+q_list <- lapply(all_markers, function(m){
+  
+  
+  count_data = sce@assays@data$counts[m,]
+  q95 <- quantile(count_data, probs = c(0.95))
+  
+  df_count_data_q100 <- as.data.frame(count_data)
+  
+
+  # q_list_temp <- ggplot(  df_count_data_q100, aes(x=log10(count_data/(q95/10)+1) )   ) + 
+  #   geom_histogram(aes(y=..density..),bins=51, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: log10( /(q95/10) + 1)"))
+  
+  
+  q_list_temp <- ggplot(  df_count_data_q100, aes(x=asinh(count_data/(q95/10)  ) )   ) + 
+    geom_histogram(aes(y=..density..),bins=51, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /Q95@2.99)"))
+
+  
+})
+
+fig_list = list()
+
+for (ii in 1:length(q_list)){
+  
+  
+     fig_list[[2*ii-1]] = p_list[[ii]]
+     fig_list[[2*ii]] = q_list[[ii]]
+}
+
+# 
+p <- ggarrange(plotlist = fig_list, common.legend = T, ncol = 2, nrow = 12)  #, ncol = 6
+
+pdf(paste0("two_transformation_comparison_5_v_q95over10.pdf"), height = 24, width = 12)
+p
+dev.off()
+# 
+# p_list[[1]]
+# 
+# ggplot(  df_count_data_q100, aes(x=asinh(count_data/(q95/10)  ) )   ) + 
+#     geom_histogram(aes(y=..density..),bins=51, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /Q95@2.99)"))
+  
+
+
+```
+
+
+
+#Two transformation comparison #2/3
+```{r}
+
+#ii = 0
+#p_list <- list()
+all_markers = c(type_markers(sce), state_markers(sce))
+#m=all_markers[1]
+
+p_list <- lapply(all_markers, function(m){
+  
+  
+  count_data = sce@assays@data$counts[m,]
+  q95 <- quantile(count_data, probs = c(0.95))
+  
+  df_count_data_q100 <- as.data.frame(count_data)
+  
+
+  # p_list_temp <- ggplot(  df_count_data_q100, aes(x=asinh(count_data/(q95/10)  ) )   ) + 
+  #   geom_histogram(aes(y=..density..),bins=51, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /Q95@2.99)"))
+  
+    p_list_temp <- ggplot(  df_count_data_q100, aes(x=asinh(count_data/(q95/10)  ) )   ) + 
+    geom_histogram(aes(y=..density..),bins=51, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /q95/10)"))
+  
+  
+})
+  
+  
+
+q_list <- lapply(all_markers, function(m){
+  
+  
+  count_data = sce@assays@data$counts[m,]
+  q95 <- quantile(count_data, probs = c(0.95))
+  
+  df_count_data_q100 <- as.data.frame(count_data)
+  
+
+  # q_list_temp <- ggplot(  df_count_data_q100, aes(x=log10(count_data/(q95/10)+1) )   ) + 
+  #   geom_histogram(aes(y=..density..),bins=51, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: log10( /(q95/10) + 1)"))
+  
+  
+  cofactor = sort(c(1,5, q95/10))[2]
+  #print(c(cofractor, q95/10))
+  
+  q_list_temp <- ggplot(  df_count_data_q100, aes(x=asinh(count_data/(cofactor)  ) )   ) + 
+    geom_histogram(aes(y=..density..),bins=51, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /[1~5])"))
+
+  
+})
+
+fig_list = list()
+
+for (ii in 1:length(q_list)){
+  
+  
+     fig_list[[2*ii-1]] = p_list[[ii]]
+     fig_list[[2*ii]] = q_list[[ii]]
+}
+
+# 
+p <- ggarrange(plotlist = fig_list, common.legend = T, ncol = 2, nrow = 12)  #, ncol = 6
+
+pdf(paste0("two_transformation_comparison_q95over10_v_q95over10_1to5.pdf"), height = 24, width = 12)
+p
+dev.off()
+# 
+# p_list[[1]]
+# 
+# ggplot(  df_count_data_q100, aes(x=asinh(count_data/(q95/10)  ) )   ) + 
+#     geom_histogram(aes(y=..density..),bins=51, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /Q95@2.99)"))
+  
+
+
+```
+
+
+
+
+
+#Two transformation comparison #3/3
+```{r}
+
+#ii = 0
+#p_list <- list()
+all_markers = c(type_markers(sce), state_markers(sce))
+#m=all_markers[1]
+
+p_list <- lapply(all_markers, function(m){
+  
+  
+  count_data = sce@assays@data$counts[m,]
+  q95 <- quantile(count_data, probs = c(0.95))
+  
+  df_count_data_q100 <- as.data.frame(count_data)
+
+  df_count_data_q95 <- as.data.frame(count_data[count_data<q95])
+  colnames(df_count_data_q95)[1]="count_data"
+  # p_list_temp <- ggplot(  df_count_data_q100, aes(x=asinh(count_data/(q95/10)  ) )   ) + 
+  #   geom_histogram(aes(y=..density..),bins=51, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /Q95@2.99)"))
+  
+    p_list_temp <- ggplot(  df_count_data_q95, aes(x=count_data)   ) + 
+    geom_histogram(aes(y=..density..),bins=51, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "95% range: raw"))
+  
+  
+})
+  
+  
+
+q_list <- lapply(all_markers, function(m){
+  
+  
+  count_data = sce@assays@data$counts[m,]
+  q95 <- quantile(count_data, probs = c(0.95))
+  
+  df_count_data_q100 <- as.data.frame(count_data)
+  
+
+  # q_list_temp <- ggplot(  df_count_data_q100, aes(x=log10(count_data/(q95/10)+1) )   ) + 
+  #   geom_histogram(aes(y=..density..),bins=51, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: log10( /(q95/10) + 1)"))
+  
+  
+  q_list_temp <- ggplot(  df_count_data_q100, aes(x=asinh(count_data/(q95/10)  ) )   ) + 
+    geom_histogram(aes(y=..density..),bins=51, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /Q95@2.99)"))
+
+  
+})
+
+fig_list = list()
+
+for (ii in 1:length(q_list)){
+  
+  
+     fig_list[[2*ii-1]] = p_list[[ii]]
+     fig_list[[2*ii]] = q_list[[ii]]
+}
+
+# 
+p <- ggarrange(plotlist = fig_list, common.legend = T, ncol = 2, nrow = 12)  #, ncol = 6
+
+pdf(paste0("two_transformation_comparison_raw_v_q95over10.pdf"), height = 24, width = 12)
+p
+dev.off()
+# 
+# p_list[[1]]
+# 
+# ggplot(  df_count_data_q100, aes(x=asinh(count_data/(q95/10)  ) )   ) + 
+#     geom_histogram(aes(y=..density..),bins=51, colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /Q95@2.99)"))
+  
+
+
+
+```
+
+
+
+
+```{r}
+
+markers <- c(type_markers(sce), state_markers(sce))
+
+q9599 <- data.frame(marker = markers)
+rownames(q9599) = q9599$marker
+
+
+q9599$q95 <- 1
+q9599$q99 <- 1
+
+
+for (m in markers){
+  
+  
+   q9599[m, 2:3] = quantile(sce@assays@data$counts[m, ], probs = c(0.95, 0.99))
+  
+  
+}
+
+
+saveRDS(q9599, "q9599.rds")
+
+```
+
+
+
+
+#Histogram for a few markers
+```{r}
+library(ggpubr)
+m="p-NF-kB"
+count_data = sce@assays@data$counts[m,]
+
+length(which(count_data == 0))/length(count_data)
+
+quantile(count_data, probs = c(0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 0.975, 0.99))
+
+
+q95 <- quantile(count_data, probs = c(0.95))
+q975 <- quantile(count_data, probs = c(0.975))
+
+count_data_q95 <- count_data[count_data<q95]
+
+#hist(count_data_q95)                     # Store histogram info
+# my_hist$counts <- cumsum(my_hist$counts)    # Change histogram counts
+# plot(my_hist)
+
+
+
+df_count_data_q100 <- as.data.frame(count_data)
+# ggplot(  df_count_data_q100, aes(x=count_data)   ) + 
+#     geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range"))
+# 
+
+df_count_data_q95 <- as.data.frame(count_data_q95)
+
+# ggplot(  df_count_data_q95, aes(x=count_data_q95)   ) + 
+#     geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title=paste(m, "upto 95%"))
+# 
+# 
+# ggplot(  df_count_data_q100, aes(x=asinh(count_data/5) )   ) + 
+#     geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /5)"))
+# 
+# ggplot(  df_count_data_q95, aes(x=asinh(count_data_q95/5) )   ) + 
+#     geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title=paste(m, "upto 95%: asinh( /5)"))
+# 
+# ggplot(  df_count_data_q95, aes(x=asinh(count_data_q95/(q95/10)) )   ) + 
+#     geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title=paste(m, "upto 95%: asinh( /0.1q95)"))
+
+p_list <- list()
+
+p_list[[1]] <- ggplot(  df_count_data_q95, aes(x=count_data_q95)   ) +
+    geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title=paste(m, "upto 95%"))
+p_list[[1]]
+
+
+p_list[[2]] <- ggplot(  df_count_data_q100, aes(x=asinh(count_data/5) )   ) + 
+    geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /5)"))
+p_list[[2]]
+
+
+p_list[[3]] <- ggplot(  df_count_data_q100, aes(x=asinh(count_data/cofactors[m, "q95_2p998"]) )   ) + 
+    geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /Q95@2.99)"))
+p_list[[3]]
+
+
+p_list[[4]] <- ggplot(  df_count_data_q100, aes(x=asinh(count_data/cofactors[m, "flowVS"]) )   ) + 
+    geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /flowVS)"))
+p_list[[4]]
+
+p_list[[5]] <- ggplot(  df_count_data_q100, aes(x=asinh(count_data/cofactors[m, "q95_5"]) )   ) + 
+    geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /Q95@5)"))
+p_list[[5]]
+
+
+p_list[[6]] <- ggplot(  df_count_data_q100, aes(x=log10(count_data/0.1+1) )   ) + 
+    geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: log10( /0.1 + 1)"))
+p_list[[6]]
+
+
+
+p2 <- ggarrange(plotlist = p_list, common.legend = T, ncol = 3, nrow = 2)  #, ncol = 6
+
+pdf(paste0("six_histo_",m,".pdf"), height = 4, width = 11)
+p2
+dev.off()
+
+```
+
+
+
+#Histogram for a few markers
+```{r}
+library(ggpubr)
+m="CD8"
+count_data = sce@assays@data$counts[m,]
+
+length(which(count_data == 0))/length(count_data)
+
+quantile(count_data, probs = c(0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 0.975, 0.99))
+
+
+q95 <- quantile(count_data, probs = c(0.95))
+q975 <- quantile(count_data, probs = c(0.975))
+
+count_data_q95 <- count_data[count_data<q95]
+
+#hist(count_data_q95)                     # Store histogram info
+# my_hist$counts <- cumsum(my_hist$counts)    # Change histogram counts
+# plot(my_hist)
+
+
+
+df_count_data_q100 <- as.data.frame(count_data)
+# ggplot(  df_count_data_q100, aes(x=count_data)   ) + 
+#     geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range"))
+# 
+
+df_count_data_q95 <- as.data.frame(count_data_q95)
+
+
+ggplot(  df_count_data_q100, aes(x=asinh(count_data/(q95/10)  ) )   ) + 
+     geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /Q95@2.99)"))
+
+
+ggplot(  df_count_data_q100, aes(x=log10(count_data/(q95/10)+1) )   ) + 
+    geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: log10( /(q95/10) + 1)"))
+
+##############
+
+# 
+# p_list <- list()
+# 
+# p_list[[1]] <- ggplot(  df_count_data_q95, aes(x=count_data_q95)   ) +
+#     geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title=paste(m, "upto 95%"))
+# p_list[[1]]
+# 
+# 
+# p_list[[2]] <- ggplot(  df_count_data_q100, aes(x=asinh(count_data/5) )   ) + 
+#     geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /5)"))
+# p_list[[2]]
+# 
+# 
+# p_list[[3]] <- ggplot(  df_count_data_q100, aes(x=asinh(count_data/cofactors[m, "q95_2p998"]) )   ) + 
+#     geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /Q95@2.99)"))
+# p_list[[3]]
+# 
+# 
+# p_list[[4]] <- ggplot(  df_count_data_q100, aes(x=asinh(count_data/cofactors[m, "flowVS"]) )   ) + 
+#     geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /flowVS)"))
+# p_list[[4]]
+# 
+# p_list[[5]] <- ggplot(  df_count_data_q100, aes(x=asinh(count_data/cofactors[m, "q95_5"]) )   ) + 
+#     geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: asinh( /Q95@5)"))
+# p_list[[5]]
+# 
+# 
+# p_list[[6]] <- ggplot(  df_count_data_q100, aes(x=log10(count_data/0.1+1) )   ) + 
+#     geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title=paste(m, "full range: log10( /0.1 + 1)"))
+# p_list[[6]]
+# 
+# 
+# 
+# p2 <- ggarrange(plotlist = p_list, common.legend = T, ncol = 3, nrow = 2)  #, ncol = 6
+# 
+# pdf(paste0("six_histo_",m,".pdf"), height = 4, width = 11)
+# p2
+# dev.off()
+
+```
+
+
+
+
+
+
+```{r}
+
+m="CD45RO"
+count_data = sce@assays@data$counts[m,]
+quantile(count_data, probs = c(0.25, 0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 0.975, 0.99))
+q95 <- quantile(count_data, probs = c(0.95))
+
+count_data_q95 <- count_data[count_data<q95]
+
+hist(count_data_q95)                     # Store histogram info
+# my_hist$counts <- cumsum(my_hist$counts)    # Change histogram counts
+# plot(my_hist)
+
+df_count_data_q95 <- as.data.frame(count_data_q95)
+
+ggplot(  df_count_data_q95, aes(x=count_data_q95)   ) + 
+    geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title=m)
+
+ggplot(  df_count_data_q95, aes(x=asinh(count_data_q95/5) )   ) + 
+    geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title=m)
+
+
+ggplot(  df_count_data_q95, aes(x=asinh(count_data_q95/(q95/10)) )   ) + 
+    geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title=m)
+
+```
+
+```{r}
+
+m="CD56"
+count_data = sce@assays@data$counts[m,]
+quantile(count_data, probs = c(0.25, 0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 0.975, 0.99))
+q95 <- quantile(count_data, probs = c(0.95))
+
+count_data_q95 <- count_data[count_data<q95]
+
+hist(count_data_q95)                     # Store histogram info
+# my_hist$counts <- cumsum(my_hist$counts)    # Change histogram counts
+# plot(my_hist)
+
+df_count_data_q95 <- as.data.frame(count_data_q95)
+
+ggplot(  df_count_data_q95, aes(x=count_data_q95)   ) + 
+    geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title=m)
+
+ggplot(  df_count_data_q95, aes(x=asinh(count_data_q95/5) )   ) + 
+    geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title=m)
+
+
+ggplot(  df_count_data_q95, aes(x=asinh(count_data_q95/(q95/10)) )   ) + 
+    geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title=m)
+```
+
+
+
+```{r}
+
+m="CD8"
+count_data = sce@assays@data$counts[m,]
+quantile(count_data, probs = c(0.25, 0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 0.975, 0.99))
+q95 <- quantile(count_data, probs = c(0.95))
+
+count_data_q95 <- count_data[count_data<q95]
+
+hist(count_data_q95)                     # Store histogram info
+# my_hist$counts <- cumsum(my_hist$counts)    # Change histogram counts
+# plot(my_hist)
+
+df_count_data_q95 <- as.data.frame(count_data_q95)
+
+ggplot(  df_count_data_q95, aes(x=count_data_q95)   ) + 
+    geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() 
+
+
+ggplot(  df_count_data_q95, aes(x=asinh(count_data_q95/5) )   ) + 
+    geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title=m)
+
+
+ggplot(  df_count_data_q95, aes(x=asinh(count_data_q95/(q95/10)) )   ) + 
+    geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title=m)
+
+
+
+quantile(asinh(df_count_data_q95$count_data_q95/(q95/10)), probs = c(0.25, 0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 0.975, 0.99))
+```
+
+
+
+
+
+```{r}
+
+marker_list <- c(type_markers(sce), state_markers(sce))
+
+cf=0.1
+
+p_list <- lapply(marker_list, function(m){
+  
+  count_data = sce@assays@data$counts[m,]
+  
+  log10p1_count_data <- as.data.frame(log10(count_data/cf+1))
+  
+  colnames(log10p1_count_data) = "log10p1"
+  
+  p <- ggplot(  log10p1_count_data, aes(x=log10p1)   ) + 
+    geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title = m)
+  
+})
+
+
+
+
+
+p_list_t <- list()
+k=0
+for (ii in (1+k):(6+k)){
+p_list_t[[ii-k]] <- p_list[[ii]]  
+}
+
+p2 <- ggarrange(plotlist = p_list_t, common.legend = FALSE, ncol = 2, nrow = 3)  #, ncol = 6
+pdf("A000_histo_log10p1_I.pdf", height = 8, width = 6)
+p2
+dev.off()
+
+
+p_list_t <- list()
+k=6
+for (ii in (1+k):(6+k)){
+p_list_t[[ii-k]] <- p_list[[ii]]  
+}
+
+p2 <- ggarrange(plotlist = p_list_t, common.legend = FALSE, ncol = 2, nrow = 3)  #, ncol = 6
+pdf("A000_histo_log10p1_II.pdf", height = 8, width = 6)
+p2
+dev.off()
+
+p_list_t <- list()
+k=12
+for (ii in (1+k):(6+k)){
+p_list_t[[ii-k]] <- p_list[[ii]]  
+}
+
+p2 <- ggarrange(plotlist = p_list_t, common.legend = FALSE, ncol = 2, nrow = 3)  #, ncol = 6
+pdf("A000_histo_log10p1_III.pdf", height = 8, width = 6)
+p2
+dev.off()
+
+
+p_list_t <- list()
+k=18
+for (ii in (1+k):(6+k)){
+p_list_t[[ii-k]] <- p_list[[ii]]  
+}
+
+p2 <- ggarrange(plotlist = p_list_t, common.legend = FALSE, ncol = 2, nrow = 3)  #, ncol = 6
+pdf("A000_histo_log10p1_IV.pdf", height = 8, width = 6)
+p2
+dev.off()
+
+
+
+
+m = "CD45RO"
+
+count_data = sce@assays@data$counts[m,]
+
+log10p1_count_data <- as.data.frame(log10(count_data/0.01+1))
+
+colnames(log10p1_count_data) = "log10p1"
+
+ggplot(  log10p1_count_data, aes(x=log10p1)   ) + 
+ geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title = m)
+
+# h <- hist(log10p1_count_data , freq=FALSE, breaks = 30)
+# h <- as.data.frame(h$density)
+# p<-ggplot(log10p1_count_data, aes(x=log10p1)) + 
+#   geom_histogram(color="black", fill="white")
+# p
+
+
+ggplot(  log10p1_count_data, aes(x=log10p1)   ) + 
+ geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title = m)
+
+#+ geom_density(alpha=.2, fill="#FF6666") 
+
+# 
+# range(count_data)
+# quantile(count_data, probs = c(0.5,0.6,0.65, 0.675,0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 0.975, 0.99))
+# hist(count_data, freq=FALSE)
+# hist(count_data, freq=FALSE, breaks=20)
+# 
+# count_data_high <- count_data[count_data >0.99]
+# hist(count_data_high, freq=FALSE)
+# 
+# h <- hist(count_data, breaks=c(0, 0.1, 1, 5, 10, 50, 100, 1000, max(count_data)))
+# 
+# 
+# hist(log_count_data, freq=FALSE, breaks = 30)
+# 
+# 
+# 
+# my_hist <- hist(log_count_data)                     # Store histogram info
+# my_hist$counts <- cumsum(my_hist$counts)    # Change histogram counts
+# plot(my_hist) 
+
+
+```
+
+
+```{r}
+
+
+
+marker_list <- c(type_markers(sce), state_markers(sce))
+
+p_list <- lapply(marker_list, function(m){
+  
+  exprs_data = sce@assays@data$exprs[m,]
+  
+  exprs_data <- as.data.frame( exprs_data )
+  
+  colnames(exprs_data) = "tfed_by_cofactor5"
+  
+  p <- ggplot(  exprs_data, aes(x=tfed_by_cofactor5)   ) + 
+    geom_histogram(aes(y=..density..), colour="black", fill="white") + theme_bw() + labs(title = m)
+  
+})
+
+
+
+
+
+p_list_t <- list()
+k=0
+for (ii in (1+k):(6+k)){
+p_list_t[[ii-k]] <- p_list[[ii]]  
+}
+
+p2 <- ggarrange(plotlist = p_list_t, common.legend = FALSE, ncol = 2, nrow = 3)  #, ncol = 6
+pdf("A000_histo_cofactor5_I.pdf", height = 8, width = 6)
+p2
+dev.off()
+
+
+p_list_t <- list()
+k=6
+for (ii in (1+k):(6+k)){
+p_list_t[[ii-k]] <- p_list[[ii]]  
+}
+
+p2 <- ggarrange(plotlist = p_list_t, common.legend = FALSE, ncol = 2, nrow = 3)  #, ncol = 6
+pdf("A000_histo_cofactor5_II.pdf", height = 8, width = 6)
+p2
+dev.off()
+
+p_list_t <- list()
+k=12
+for (ii in (1+k):(6+k)){
+p_list_t[[ii-k]] <- p_list[[ii]]  
+}
+
+p2 <- ggarrange(plotlist = p_list_t, common.legend = FALSE, ncol = 2, nrow = 3)  #, ncol = 6
+pdf("A000_histo_cofactor5_III.pdf", height = 8, width = 6)
+p2
+dev.off()
+
+
+p_list_t <- list()
+k=18
+for (ii in (1+k):(6+k)){
+p_list_t[[ii-k]] <- p_list[[ii]]  
+}
+
+p2 <- ggarrange(plotlist = p_list_t, common.legend = FALSE, ncol = 2, nrow = 3)  #, ncol = 6
+pdf("A000_histo_cofactor5_IV.pdf", height = 8, width = 6)
+p2
+dev.off()
+```
+
+
+
+
+
+```{r}
+
+m="CD8"
+count_data = sce@assays@data$counts[m,]
+
+log_count_data <- log10(count_data+1)
+
+range(count_data)
+quantile(count_data, probs = c(0.5,0.6,0.65, 0.675,0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 0.975, 0.99))
+hist(count_data, freq=FALSE)
+hist(count_data, freq=FALSE, breaks=20)
+
+
+count_data_high <- count_data[count_data >0.99]
+hist(count_data_high, freq=FALSE)
+
+
+h <- hist(count_data, breaks=c(0, 0.1, 1, 5, 10, 50, 100, 2003))
+
+
+h <- hist(log_count_data, freq=FALSE)
+
+
+
+my_hist <- hist(log_count_data)                     # Store histogram info
+my_hist$counts <- cumsum(my_hist$counts)    # Change histogram counts
+plot(my_hist) 
+
+
+```
+
+
+```{r}
+
+m="CD4"
+count_data = sce@assays@data$counts[m,]
+
+log_count_data <- log10(count_data+1)
+
+range(count_data)
+quantile(count_data, probs = c(0.5,0.6,0.65, 0.675,0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 0.975, 0.99))
+hist(count_data, freq=FALSE)
+hist(count_data, freq=FALSE, breaks=20)
+
+count_data_high <- count_data[count_data >0.99]
+hist(count_data_high, freq=FALSE)
+
+h <- hist(count_data, breaks=c(0, 0.1, 1, 5, 10, 50, 100, 1000, max(count_data)))
+
+
+h <- hist(log_count_data, freq=FALSE)
+
+ hist(log_count_data, freq=FALSE, breaks = 30)  
+
+my_hist <- hist(log_count_data)                     # Store histogram info
+my_hist$counts <- cumsum(my_hist$counts)    # Change histogram counts
+plot(my_hist) 
+
+
+```
+
+
+
+```{r}
+
+m="CD45RO"
+count_data = sce@assays@data$counts[m,]
+
+log_count_data <- log10(count_data+1)
+
+range(count_data)
+quantile(count_data, probs = c(0.5,0.6,0.65, 0.675,0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 0.975, 0.99))
+hist(count_data, freq=FALSE)
+hist(count_data, freq=FALSE, breaks=20)
+
+count_data_high <- count_data[count_data >0.99]
+hist(count_data_high, freq=FALSE)
+
+h <- hist(count_data, breaks=c(0, 0.1, 1, 5, 10, 50, 100, 1000, max(count_data)))
+
+
+h <- hist(log_count_data, freq=FALSE)
+
+
+
+my_hist <- hist(log_count_data)                     # Store histogram info
+my_hist$counts <- cumsum(my_hist$counts)    # Change histogram counts
+plot(my_hist) 
+
+
+```
+
+```{r}
+
+m="CD197"
+count_data = sce@assays@data$counts[m,]
+
+log_count_data <- log10(count_data+1)
+
+range(count_data)
+quantile(count_data, probs = c(0.5,0.6,0.65, 0.675,0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 0.975, 0.99))
+hist(count_data, freq=FALSE)
+hist(count_data, freq=FALSE, breaks=20)
+
+count_data_high <- count_data[count_data >0.99]
+hist(count_data_high, freq=FALSE)
+
+h <- hist(count_data, breaks=c(0, 0.1, 1, 5, 10, 50, 100, 1000, max(count_data)))
+
+
+h <- hist(log_count_data, freq=FALSE)
+
+hist(log_count_data, breaks = 40, freq=FALSE)
+
+my_hist <- hist(log_count_data)                     # Store histogram info
+my_hist$counts <- cumsum(my_hist$counts)    # Change histogram counts
+plot(my_hist) 
+
+
+```
+
+# if data is already asinh transformed
+```{r}
+
+sce@assays@data$exprs <- sce@assays@data$counts
+Sys.time()
+```
+
+
+# sample-wise marker expression profiles
+```{r}
+
+
+p <- list()
+marker_index <- which(is.na(stringr::str_match(substr(rownames(sce@assays@data$counts),1,2), "[0-9][0-9]")[,1]))
+markers <- rownames(sce@assays@data$counts)[marker_index]
+
+type_marker_list <- markers[which(markers %in% type_markers(sce))]
+state_marker_list <- markers[which(markers %in% state_markers(sce))]
+none_marker_list <- setdiff(markers, type_marker_list)
+none_marker_list <- setdiff(none_marker_list, state_marker_list)
+
+ii=0
+
+for (m in type_marker_list){
+  
+  data_4_plot <- data.frame(expression = sce@assays@data$exprs[m,], sample_id = sce$sample_id)
+  
+  ii <- ii +1
+  p[[ii]] <-    ggplot(data_4_plot, aes(expression, color = sample_id))+geom_density(show.legend = FALSE) +
+    theme_bw() + labs(title = paste("type marker:", m) ) + 
+    xlab(NULL)+ylab(NULL) + 
+    theme(aspect.ratio=2/4)+ theme(axis.text.x = element_text(size = 10)) + 
+    theme(axis.text.y = element_text(size = 11, color = "black")) +
+    theme(axis.text.x = element_text(size = 11, color = "black")) +
+    theme(axis.line = element_line(lineend = "square"))
+
+}
+
+for (m in state_marker_list){
+  
+  data_4_plot <- data.frame(expression = sce@assays@data$exprs[m,], sample_id = sce$sample_id)
+  
+  ii <- ii +1
+  p[[ii]] <-    ggplot(data_4_plot, aes(expression, color = sample_id))+geom_density(show.legend = FALSE) +
+    theme_bw() + labs(title = paste("state marker:", m) ) + 
+    xlab(NULL)+ylab(NULL) + 
+    theme(aspect.ratio=2/4)+ theme(axis.text.x = element_text(size = 10)) + 
+    theme(axis.text.y = element_text(size = 11, color = "black")) +
+    theme(axis.text.x = element_text(size = 11, color = "black")) +
+    theme(axis.line = element_line(lineend = "square"))
+
+}
+
+
+for (m in none_marker_list){
+  
+  data_4_plot <- data.frame(expression = sce@assays@data$exprs[m,], sample_id = sce$sample_id)
+  
+  ii <- ii +1
+  p[[ii]] <-    ggplot(data_4_plot, aes(expression, color = sample_id))+geom_density(show.legend = FALSE) +
+    theme_bw() + labs(title = paste("none marker:", m) ) + 
+    xlab(NULL)+ylab(NULL) + 
+    theme(aspect.ratio=2/4)+ theme(axis.text.x = element_text(size = 10)) + 
+    theme(axis.text.y = element_text(size = 11, color = "black")) +
+    theme(axis.text.x = element_text(size = 11, color = "black")) +
+    theme(axis.line = element_line(lineend = "square"))
+
+}
+
+p2 <- ggarrange(plotlist = p, common.legend = FALSE, ncol = 5, nrow = 3)  #, ncol = 6
+pdf("F000_all_marker_expression_profile.pdf", height = 7, width = 12)
+p2
+dev.off()
+
+
+```
+
+
+
