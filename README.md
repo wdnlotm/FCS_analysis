@@ -1,5 +1,5 @@
 ---
 
-Myles Kim, Ph.D.
+Myles Kim
 
 ---
