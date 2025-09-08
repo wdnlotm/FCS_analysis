@@ -14,9 +14,10 @@ z01:   #batch correction
     numpool: 4
 z02:
     fcsdata: 'fcs_df_cycombine_BCed.csv.gz'
-    label: &label 't_cell_hogan'
+    label: &label 'b_cell_markers_hogan'
     figsavedir: "figures_for_spectral_umap"
     cofactorfile: *cofactor
+    fcs_umap_savefile: &fcs_umap_savefile 'fcs_data_umap.csv.gz'
     min_dist: 0.01
 z03:
     label: *label #'t_cell_markers_hogan'
@@ -26,3 +27,20 @@ z03:
 z04:
     cofactorfile: *cofactor #'cofactors.csv'
     figure_dir: 'round_one_clustering'
+z05:
+    rp_pick: &rp_pick 0.2
+    figure_dir: 'z05_clusters'
+    fcs_umap_saved: *fcs_umap_savefile
+    cofactorfile: *cofactor #'cofactors.csv'
+    label: *label
+    min_dist: 0.1
+z06:
+    cluster_list: [0,1,2,3,4]
+    edgelist_loc: 'z05_clusters'
+    rp_pick: *rp_pick
+    save_dir: 'subclustering'
+    label: *label
+    rp_list: '[0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4]'
+    fcs_umap_saved: *fcs_umap_savefile
+    cofactorfile: *cofactor #'cofactors.csv'
+    min_dist: 0.1
