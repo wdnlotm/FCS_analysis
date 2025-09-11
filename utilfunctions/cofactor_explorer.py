@@ -26,7 +26,8 @@ def plot_density_nogroup(m, fcs_df_trimmed, cofactors, figure_dir, dataset_name,
     kwargs: 
     fraction = 0.15, default, #Subsampling fraction. 0 < x < 1 
     alpha = 0.5, default, #line transparency. 0 < a < 1. 
-    font_size = 8 default, #integer for plt.rcParams['font.size'] """
+    font_size = 8 default, #integer for plt.rcParams['font.size'] 
+    """
     
     bw_val=0.5
     frac_value=0.15
