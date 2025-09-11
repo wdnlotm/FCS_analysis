@@ -23,9 +23,9 @@ from tqdm import tqdm
 def plot_density_nogroup(m, fcs_df_trimmed, cofactors, figure_dir, dataset_name, **kwargs):
     """ Function that plots marker expressiong density 
     plot for each marker with various cofactors \n
-    kwargs: \n
-    fraction = 0.15, default, #Subsampling fraction. 0 < x < 1 \n
-    alpha = 0.5, default, #line transparency. 0 < a < 1. \n
+    kwargs: 
+    fraction = 0.15, default, #Subsampling fraction. 0 < x < 1 
+    alpha = 0.5, default, #line transparency. 0 < a < 1. 
     font_size = 8 default, #integer for plt.rcParams['font.size'] """
     
     bw_val=0.5
