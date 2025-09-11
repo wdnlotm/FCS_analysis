@@ -1,22 +1,13 @@
 import os
 import time
-# import argparse
 import subprocess
-# import bokeh
-# from bokeh.plotting import show
-
 import sys
 import yaml
-
 import umap
-
 import math
 from random import sample
-
-# import flowkit as fk
 import numpy as np
 import pandas as pd
-
 import matplotlib.pyplot as plt
 import matplotlib_inline.backend_inline
 import seaborn as sns
@@ -36,7 +27,7 @@ def plot_density_nogroup(m, fcs_df_trimmed, cofactors, figure_dir, dataset_name,
     fraction = x, #Subsampling fraction. 0 < x < 1 \n
     alpha = a, #line transparency. 0 < a < 1. \n
     font_size = 10, #integer"""
-    # dataset_name='spect'
+    
     bw_val=0.5
     frac_value=0.15
     alpha_val=0.5
