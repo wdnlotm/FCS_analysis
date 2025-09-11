@@ -20,17 +20,23 @@ from multiprocessing import Manager
 
 from tqdm import tqdm
 ## density plot no groupping
-def plot_density_nogroup(m, fcs_df_trimmed, cofactors, figure_dir, dataset_name, **kwarg):
+def plot_density_nogroup(m, fcs_df_trimmed, cofactors, figure_dir, dataset_name, **kwargs):
     """ Function that plots marker expressiong density 
     plot for each marker with various cofactors \n
     kwargs: \n
-    fraction = x, #Subsampling fraction. 0 < x < 1 \n
-    alpha = a, #line transparency. 0 < a < 1. \n
-    font_size = 10, #integer"""
+    fraction = 0.15, default, #Subsampling fraction. 0 < x < 1 \n
+    alpha = 0.5, default, #line transparency. 0 < a < 1. \n
+    font_size = 8 default, #integer for plt.rcParams['font.size'] """
     
     bw_val=0.5
     frac_value=0.15
+    if ('fraction' in kwargs.keys()):
+        if (0 <= kwargs['fraction'])&(kwargs['fraction'] <= 1):
+            frac_value = kwargs['fraction']
     alpha_val=0.5
+    if ('alpha' in kwargs.keys()):
+        if (0 <= kwargs['alpha'])&(kwargs['alpha'] <= 1):
+            alpha_val = kwargs['alpha']
     linewidth_val=1
     plt.rcParams['font.size'] = 8 # Set default font size
     
