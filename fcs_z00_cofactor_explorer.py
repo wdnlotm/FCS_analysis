@@ -34,7 +34,8 @@ color_list = ['#e6194B', '#3cb44b', '#ffe119', '#4363d8',\
         '#800000', '#808000', '#2f4f4f', '#a9a9a9',\
         '#ffd8b1', '#000000', '#fffac8', '#aaffc3']
 
-from fcssupport import init_pool, unpack_and_run_nogroup, plot_density_nogroup
+# loading from the utilfunctions directory. Make sure the directory is in the same location. No installing "utilfunctions"
+from utilfunctions import init_pool, unpack_and_run_nogroup, plot_density_nogroup
 
 ## Functions
 
@@ -42,8 +43,6 @@ from fcssupport import init_pool, unpack_and_run_nogroup, plot_density_nogroup
 def augmented_df(df, sid):
     df[('sample_id','sample_id')]=sid
     return df
-
-
 
 ## Main - take inputs
 ##        1. figure_dir_name
