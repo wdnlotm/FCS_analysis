@@ -1,16 +1,18 @@
-import os
-import time
-import argparse
+"""
+At this step z01, all relavant markers will be arcsinh transformed with the selected custom cofactors.
+The transformed data will be prepared for the CyCombine batch correction. 
+This dataframe will be saved as fcs_df_ready_for_cycombine.csv.gz and marker expression will be plotted as Pre_BC.
+An R code will be called for CyCombine batch correction. The result would be saved as 
+fcs_df_cycombine_BCed.csv.gz and Post BC plot will be generated.
+"""
+import os, sys, time, math
+
+import argparse, yaml
+
 import subprocess
 # import bokeh
 # from bokeh.plotting import show
 
-import sys
-import yaml
-
-import umap
-
-import math
 from random import sample
 
 import flowkit as fk
@@ -22,20 +24,19 @@ import matplotlib_inline.backend_inline
 import seaborn as sns
 
 import multiprocessing
-import multiprocess
 from itertools import starmap
-
 from multiprocessing import Manager
-
 from tqdm import tqdm
 
-global color_list 
-color_list = ['#e6194B', '#3cb44b', '#ffe119', '#4363d8',\
-        '#f58231', '#911eb4', '#42d4f4', '#f032e6',\
-        '#bfef45', '#469990', '#dcbeff', '#9A6324',\
-        '#800000', '#808000', '#2f4f4f', '#a9a9a9',\
-        '#ffd8b1', '#000000', '#fffac8', '#aaffc3']
+# global color_list 
+# color_list = ['#e6194B', '#3cb44b', '#ffe119', '#4363d8',\
+#         '#f58231', '#911eb4', '#42d4f4', '#f032e6',\
+#         '#bfef45', '#469990', '#dcbeff', '#9A6324',\
+#         '#800000', '#808000', '#2f4f4f', '#a9a9a9',\
+#         '#ffd8b1', '#000000', '#fffac8', '#aaffc3']
 
+## in house
+from utilfunctions import data_prep_for_cycombine, plot_markers_w_cf_by_batch
 
 ## Functions
 
@@ -43,158 +44,62 @@ def init_pool(the_results):
   global results
   results = the_results
 
+# def data_prep_for_cycombine(df, condition):
+#     # add 'id'
+#     df_return = df
+#     num_cells = df_return.shape[0]
+#     df_return = pd.concat([pd.DataFrame({'id':list(range( num_cells ))}), df_return], axis=1)
+#     # add 'sample'
+#     df_return['sample'] = (df_return['sample_id'].copy()).map(lambda x: x.replace(".fcs","") )
+#     # add 'condition'
+#     df_return['condition']=condition
+#     # add temporary 'batch'
+#     df_return['batch']=100
+#     return df_return
 
-def unpack_and_run(args):
-    """Helper function to unpack arguments and call the main function."""
-    return plot_density_nogroup_noglob(*args)
-
-def unpack_and_run_group(args):
-    """Helper function to unpack arguments and call the main function."""
-    return plot_density_grouped(*args)
-
-#add 'sample id; coloumns
-def augmented_df(df, sid):
-    df[('sample_id','sample_id')]=sid
-    return df
 
 
-## density plot grouped by sample id
-def plot_density_grouped(ii, group_by, fcs_df_trimmed, cofactors, figure_dir, dataset_name):
-    """ Function that plots marker expressiong density 
-    plot grouped by sample_id for each marker with various cofactors"""
-    # dataset_name='spect'
-    bw_val=0.5
-    frac_value=0.15
-    alpha_val=0.5
-    linewidth_val=1
-    plt.rcParams['font.size'] = 8 # Set default font size
-    num_col=5 #int(np.ceil(np.sqrt(fcs_df_trimmed.shape[1]-1)))
-    num_row=int(np.ceil(len(cofactors)/num_col))
-    fig, axes = plt.subplots(num_row, num_col, 
-                         figsize=(2.0*num_col, 1.2*num_row) ) # 1 row, 2 columns
-    marker = fcs_df_trimmed.columns[ii]
+# def plot_markers_w_cf_nogroup(fcs_df, cofactor_df, figure_dir, filename):
+#     dataset_name='batch_corrected'
+#     bw_val=0.5
+#     frac_value=0.1
+#     alpha_val=0.5
+#     linewidth_val=1
+#     plt.rcParams['font.size'] = 8 # Set default font size
 
-    for cf in cofactors:
-        jj=cofactors.index(cf)
-        row_index= jj//num_col
-        col_index= jj%num_col
-        
-        fcs_df_trimmed_onemarker = fcs_df_trimmed[[marker, group_by]].copy()
-        fcs_df_trimmed_onemarker = fcs_df_trimmed_onemarker.sample(frac=frac_value)
-        fcs_df_trimmed_onemarker[marker] = np.arcsinh(fcs_df_trimmed_onemarker[marker]/cf)
-        sns.kdeplot(data=fcs_df_trimmed_onemarker, x=marker, bw_adjust=bw_val, hue=group_by, 
-            legend=False, ax=axes[row_index,col_index], alpha=alpha_val, linewidth=linewidth_val)
-        axes[row_index,col_index].set_title(f"cofactor {cf}", fontsize=10)
-
-    plt.tight_layout()
-    filename=f'{dataset_name}_marker_{marker}_bw_{bw_val}_group_by_subjects.png'
-    plt.savefig(f'{figure_dir}/{filename}')    
-    plt.close('all')
+#     num_markers=cofactor_df.shape[0]
+#     antigen = list(cofactor_df['antigen'])
+#     num_col=5 #int(np.ceil(np.sqrt(fcs_df_trimmed.shape[1]-1)))
     
-    return filename
-
-
-## density plot no groupping
-def plot_density_nogroup_noglob(ii, fcs_df_trimmed, cofactors, figure_dir, dataset_name):
-    """ Function that plots marker expressiong density 
-    plot for each marker with various cofactors"""
-    # dataset_name='spect'
-    bw_val=0.5
-    frac_value=0.15
-    alpha_val=0.5
-    linewidth_val=1
-    plt.rcParams['font.size'] = 8 # Set default font size
+#     num_row=int(np.ceil(( num_markers )/num_col))
+#     fig, axes = plt.subplots(num_row, num_col, 
+#                              figsize=(2.0*num_col, 1.2*num_row) ) # 1 row, 2 columns
+#     # print(fcs_df_trimmed.head())
+#     # num_markers=fcs_df_trimmed_transformed_w_custom_cf.shape[1]-1
     
-    num_col=5 #int(np.ceil(np.sqrt(fcs_df_trimmed.shape[1]-1)))
-    num_row=int(np.ceil(len(cofactors)/num_col))
-    fig, axes = plt.subplots(num_row, num_col, 
-                         figsize=(2.0*num_col, 1.2*num_row) ) # 1 row, 2 columns
+#     num_batch=len(set(fcs_df['batch']))
+#     for ii in range(num_markers):
+#         row_index= ii//num_col
+#         col_index= ii%num_col
     
-    marker = fcs_df_trimmed.columns[ii]
-    # print(marker)
-
-    for cf in cofactors:
-        jj=cofactors.index(cf)
-        row_index= jj//num_col
-        col_index= jj%num_col
-        
-        # print(fcs_df_trimmed.head(2))
-        
-        fcs_df_trimmed_onemarker = fcs_df_trimmed[[marker, 'sample_id']].copy()
-        fcs_df_trimmed_onemarker = fcs_df_trimmed_onemarker.sample(frac=frac_value)
-        fcs_df_trimmed_onemarker[marker] = np.arcsinh(fcs_df_trimmed_onemarker[marker]/cf)
-        sns.kdeplot(data=fcs_df_trimmed_onemarker, x=marker, bw_adjust=bw_val, #hue='sample_id', 
-            legend=False, ax=axes[row_index,col_index], alpha=alpha_val, linewidth=linewidth_val)
-        axes[row_index,col_index].set_title(f"cofactor {cf}", fontsize=10)
-
-    # print('I am here')
-    plt.tight_layout()
-    filename=f'{dataset_name}_marker_{marker}_bw_{bw_val}_no_group.png'
-    # print(filename)
+#         marker = antigen[ii]  #fcs_df_trimmed_transformed_w_custom_cf.columns[ii]
     
-    # print(f'{figure_dir}/{filename}')
-    plt.savefig(f'{figure_dir}/{filename}')    
-    plt.close('all')
+#         cf = cofactor_df['cofactor'][cofactor_df['antigen']==marker].values
+#         cf = cf[0]*1.0
+#         marker_class = cofactor_df['class'][cofactor_df['antigen']==marker].values[0]
     
-    return filename
-
-
-def data_prep_for_cycombine(df, condition):
-    # add 'id'
-    df_return = df
-    num_cells = df_return.shape[0]
-    df_return = pd.concat([pd.DataFrame({'id':list(range( num_cells ))}), df_return], axis=1)
-    # add 'sample'
-    df_return['sample'] = (df_return['sample_id'].copy()).map(lambda x: x.replace(".fcs","") )
-    # add 'condition'
-    df_return['condition']=condition
-    # add temporary 'batch'
-    df_return['batch']=100
-    return df_return
-
-
-
-def plot_markers_w_cf_nogroup(fcs_df, cofactor_df, figure_dir, filename):
-    dataset_name='batch_corrected'
-    bw_val=0.5
-    frac_value=0.1
-    alpha_val=0.5
-    linewidth_val=1
-    plt.rcParams['font.size'] = 8 # Set default font size
-
-    num_markers=cofactor_df.shape[0]
-    antigen = list(cofactor_df['antigen'])
-    num_col=5 #int(np.ceil(np.sqrt(fcs_df_trimmed.shape[1]-1)))
-    
-    num_row=int(np.ceil(( num_markers )/num_col))
-    fig, axes = plt.subplots(num_row, num_col, 
-                             figsize=(2.0*num_col, 1.2*num_row) ) # 1 row, 2 columns
-    # print(fcs_df_trimmed.head())
-    # num_markers=fcs_df_trimmed_transformed_w_custom_cf.shape[1]-1
-    
-    num_batch=len(set(fcs_df['batch']))
-    for ii in range(num_markers):
-        row_index= ii//num_col
-        col_index= ii%num_col
-    
-        marker = antigen[ii]  #fcs_df_trimmed_transformed_w_custom_cf.columns[ii]
-    
-        cf = cofactor_df['cofactor'][cofactor_df['antigen']==marker].values
-        cf = cf[0]*1.0
-        marker_class = cofactor_df['class'][cofactor_df['antigen']==marker].values[0]
-    
-        sns.kdeplot(data=fcs_df, x=marker,bw_adjust=bw_val, hue='batch', palette=color_list[0:num_batch],
-                ax=axes[row_index,col_index], alpha=alpha_val, linewidth=linewidth_val, legend=False)
-        if ii==num_markers-1:
-            sns.kdeplot(data=fcs_df, x=marker,bw_adjust=bw_val, hue='batch', palette=color_list[0:num_batch],
-                        ax=axes[row_index,col_index], alpha=alpha_val, linewidth=linewidth_val, legend=True)
-        axes[row_index,col_index].set_title(f"cf {cf} {marker_class[0:5]}", fontsize=10)
+#         sns.kdeplot(data=fcs_df, x=marker,bw_adjust=bw_val, hue='batch', palette=color_list[0:num_batch],
+#                 ax=axes[row_index,col_index], alpha=alpha_val, linewidth=linewidth_val, legend=False)
+#         if ii==num_markers-1:
+#             sns.kdeplot(data=fcs_df, x=marker,bw_adjust=bw_val, hue='batch', palette=color_list[0:num_batch],
+#                         ax=axes[row_index,col_index], alpha=alpha_val, linewidth=linewidth_val, legend=True)
+#         axes[row_index,col_index].set_title(f"cf {cf} {marker_class[0:5]}", fontsize=10)
     
     
-    plt.tight_layout()
+#     plt.tight_layout()
     
-    plt.savefig(f'{figure_dir}/{filename}')   
-    plt.close('all')
+#     plt.savefig(f'{figure_dir}/{filename}')   
+#     plt.close('all')
 
 
 ## Functions - DONE
@@ -208,6 +113,7 @@ def plot_markers_w_cf_nogroup(fcs_df, cofactor_df, figure_dir, filename):
 ##        6. number of pools for nogroup plot
 
 if __name__ == "__main__":
+    """Print this"""
     print(os.getcwd())
 
     manager = Manager()
@@ -236,13 +142,13 @@ if __name__ == "__main__":
     if args.useyaml:
         with open('config.yaml', 'r') as f:
             config = yaml.safe_load(f)
-            figure_dir = config['parameters']['z01']['figure_dir'] # figure_dir: where to save figures
-            fcstrimmed = config['parameters']['z01']['fcstrimmed']       # data location
-            cofactorfile = config['parameters']['z01']['cofactorfile']
-            numpool =  config['parameters']['z01']['numpool']
-            batchinfo = config['parameters']['z01']['batchinfo']
+            figure_dir = config['z01']['figure_dir'] # figure_dir: where to save figures
+            fcstrimmed = config['z01']['fcstrimmed']       # data location
+            cofactorfile = config['z01']['cofactorfile']
+            numpool =  config['z01']['numpool']
+            batchinfo = config['z01']['batchinfo']
 
-    print(config['parameters']['z01'])
+    print(config['z01'])
 
 
     if not os.path.isdir(figure_dir):
@@ -307,17 +213,21 @@ if __name__ == "__main__":
 
     print(fcs_df_trimmed_transformed_w_custom_cf.head())
     
+    print(f"Pre BC plots")
     savefilename=f'Pre_batch_correction_markers_w_custom_cofactor_nogroup.png'
-    plot_markers_w_cf_nogroup(fcs_df_trimmed_transformed_w_custom_cf, cofactor_df, figure_dir, savefilename)
+    plot_markers_w_cf_by_batch(fcs_df_trimmed_transformed_w_custom_cf, cofactor_df, figure_dir, savefilename)
 
     
     start_time = time.perf_counter()
     fcs_df_trimmed_transformed_w_custom_cf.to_csv("fcs_df_ready_for_cycombine.csv.gz", index=False, compression='gzip')
     duration = time.perf_counter() - start_time
     print(f"Computation time: {duration:.4f} seconds")
+    
+    print(f"Starting CyCombine...")
+    start_time = time.perf_counter()
 
     cycombine_commands = """module load apptainer; SIF=/project/iprime_storage/myles_kim/imageD/R441_cytof/rstudio_R443_v6.sif; 
-    apptainer exec $SIF Rscript fcs_spect_z01_cyCombine_simple.r fcs_df_ready_for_cycombine.csv.gz markers_to_batchcorrect.csv fcs_df_cycombine_BCed.csv.gz"""
+    apptainer exec $SIF Rscript fcs_z01_cyCombine_simple.r fcs_df_ready_for_cycombine.csv.gz markers_to_batchcorrect.csv fcs_df_cycombine_BCed.csv.gz"""
 
     try:
         # Execute the command using the system shell
@@ -338,10 +248,17 @@ if __name__ == "__main__":
     except subprocess.CalledProcessError as e:
         print(f"Command failed with error code {e.returncode}")
         print("Error output:\n", e.stderr)
+    
+    duration = time.perf_counter() - start_time
+    print(f"CyCombine Computation time: {duration:.4f} seconds")
 
+    print(f"Saving BCed fcs data...")
     fcs_df_BCed = pd.read_csv('fcs_df_cycombine_BCed.csv.gz', compression='gzip')
+
+    print(f"Post BC plot...")
     savefilename=f'Post_batch_correction_markers_w_custom_cofactor_nogroup.png'
-    plot_markers_w_cf_nogroup(fcs_df_BCed, cofactor_df, figure_dir, savefilename)
+    plot_markers_w_cf_by_batch(fcs_df_BCed, cofactor_df, figure_dir, savefilename)
+    # plot_markers_w_cf_nogroup(fcs_df_BCed, cofactor_df, figure_dir, savefilename)
 
     # fcs_df_BCed2 = pd.read_csv('fcs_df_cycombine_BCed.csv')
     # savefilename=f'Post_batch_correction_markers_w_custom_cofactor_nogroup2.png'
