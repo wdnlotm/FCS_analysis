@@ -10,8 +10,6 @@ import os, sys, time, math
 import argparse, yaml
 
 import subprocess
-# import bokeh
-# from bokeh.plotting import show
 
 from random import sample
 
@@ -43,64 +41,6 @@ from utilfunctions import data_prep_for_cycombine, plot_markers_w_cf_by_batch
 def init_pool(the_results):
   global results
   results = the_results
-
-# def data_prep_for_cycombine(df, condition):
-#     # add 'id'
-#     df_return = df
-#     num_cells = df_return.shape[0]
-#     df_return = pd.concat([pd.DataFrame({'id':list(range( num_cells ))}), df_return], axis=1)
-#     # add 'sample'
-#     df_return['sample'] = (df_return['sample_id'].copy()).map(lambda x: x.replace(".fcs","") )
-#     # add 'condition'
-#     df_return['condition']=condition
-#     # add temporary 'batch'
-#     df_return['batch']=100
-#     return df_return
-
-
-
-# def plot_markers_w_cf_nogroup(fcs_df, cofactor_df, figure_dir, filename):
-#     dataset_name='batch_corrected'
-#     bw_val=0.5
-#     frac_value=0.1
-#     alpha_val=0.5
-#     linewidth_val=1
-#     plt.rcParams['font.size'] = 8 # Set default font size
-
-#     num_markers=cofactor_df.shape[0]
-#     antigen = list(cofactor_df['antigen'])
-#     num_col=5 #int(np.ceil(np.sqrt(fcs_df_trimmed.shape[1]-1)))
-    
-#     num_row=int(np.ceil(( num_markers )/num_col))
-#     fig, axes = plt.subplots(num_row, num_col, 
-#                              figsize=(2.0*num_col, 1.2*num_row) ) # 1 row, 2 columns
-#     # print(fcs_df_trimmed.head())
-#     # num_markers=fcs_df_trimmed_transformed_w_custom_cf.shape[1]-1
-    
-#     num_batch=len(set(fcs_df['batch']))
-#     for ii in range(num_markers):
-#         row_index= ii//num_col
-#         col_index= ii%num_col
-    
-#         marker = antigen[ii]  #fcs_df_trimmed_transformed_w_custom_cf.columns[ii]
-    
-#         cf = cofactor_df['cofactor'][cofactor_df['antigen']==marker].values
-#         cf = cf[0]*1.0
-#         marker_class = cofactor_df['class'][cofactor_df['antigen']==marker].values[0]
-    
-#         sns.kdeplot(data=fcs_df, x=marker,bw_adjust=bw_val, hue='batch', palette=color_list[0:num_batch],
-#                 ax=axes[row_index,col_index], alpha=alpha_val, linewidth=linewidth_val, legend=False)
-#         if ii==num_markers-1:
-#             sns.kdeplot(data=fcs_df, x=marker,bw_adjust=bw_val, hue='batch', palette=color_list[0:num_batch],
-#                         ax=axes[row_index,col_index], alpha=alpha_val, linewidth=linewidth_val, legend=True)
-#         axes[row_index,col_index].set_title(f"cf {cf} {marker_class[0:5]}", fontsize=10)
-    
-    
-#     plt.tight_layout()
-    
-#     plt.savefig(f'{figure_dir}/{filename}')   
-#     plt.close('all')
-
 
 ## Functions - DONE
 
@@ -258,11 +198,7 @@ if __name__ == "__main__":
     print(f"Post BC plot...")
     savefilename=f'Post_batch_correction_markers_w_custom_cofactor_nogroup.png'
     plot_markers_w_cf_by_batch(fcs_df_BCed, cofactor_df, figure_dir, savefilename)
-    # plot_markers_w_cf_nogroup(fcs_df_BCed, cofactor_df, figure_dir, savefilename)
-
-    # fcs_df_BCed2 = pd.read_csv('fcs_df_cycombine_BCed.csv')
-    # savefilename=f'Post_batch_correction_markers_w_custom_cofactor_nogroup2.png'
-    # plot_markers_w_cf_nogroup(fcs_df_BCed2, cofactor_df, figure_dir, savefilename)
+ 
 
 
     
