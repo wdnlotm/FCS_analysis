@@ -40,6 +40,12 @@ def unpack_and_run_group(args):
 def plot_density_nogroup(m, fcs_df_trimmed, cofactors, figure_dir, dataset_name, **kwargs):
     """ Function that plots marker expressiong density 
     plot for each marker with various cofactors \n
+    args:
+    m - marker name
+    fcs_df_trimmed - dataframe
+    cofactors - cofactors to explorer
+    figure_dir - figures will be saved here
+    dataset_name - short description
     kwargs: 
     fraction = 0.15, default, #Subsampling fraction. 0 < x < 1 
     alpha = 0.5, default, #line transparency. 0 < a < 1. 
