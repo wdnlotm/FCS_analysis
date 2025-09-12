@@ -27,6 +27,7 @@ def init_pool(the_results):
   global results
   results = the_results
 
+# for multiprocessing
 def unpack_and_run_nogroup(args):
     """Helper function to unpack arguments and call the main function."""
     return plot_density_nogroup(*args)
