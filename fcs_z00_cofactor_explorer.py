@@ -1,31 +1,25 @@
-import os
-import time
-import argparse
-import subprocess
+import os, sys, time, math
 
-import sys
-import yaml
+import argparse, yaml
 
-import umap
-
-import math
 from random import sample
 
 import flowkit as fk
 import numpy as np
 import pandas as pd
-
 import matplotlib.pyplot as plt
 import matplotlib_inline.backend_inline
 import seaborn as sns
 
+import subprocess
 import multiprocessing
-import multiprocess
 from itertools import starmap
-
 from multiprocessing import Manager
 
 from tqdm import tqdm
+
+## in-house
+from utilfunctions import init_pool, unpack_and_run_nogroup, plot_density_nogroup
 
 global color_list 
 color_list = ['#e6194B', '#3cb44b', '#ffe119', '#4363d8',\
@@ -33,10 +27,6 @@ color_list = ['#e6194B', '#3cb44b', '#ffe119', '#4363d8',\
         '#bfef45', '#469990', '#dcbeff', '#9A6324',\
         '#800000', '#808000', '#2f4f4f', '#a9a9a9',\
         '#ffd8b1', '#000000', '#fffac8', '#aaffc3']
-
-# loading from the utilfunctions directory. Make sure the directory is in the same location. No installing "utilfunctions"
-from utilfunctions import init_pool, unpack_and_run_nogroup, plot_density_nogroup
-
 ## Functions
 
 #add 'sample id; coloumns
