@@ -1,3 +1,7 @@
+"""
+At this step z00, all fcs files will be read into one single DataFrame.
+A list of cofactors will be used to plot arcsinh transformed marker expression density, so we can pick an optimal cofactor for each marker.
+"""
 import os, sys, time, math
 
 import argparse, yaml
