@@ -1,3 +1,7 @@
+"""
+Need to run this with the RAPIDS container
+apptainer exec --nv $RAPIDS_SIF python fcs_spect_z03_RAPIDS_leiden.py
+"""
 import os
 import yaml
 import sys
@@ -9,16 +13,17 @@ from datetime import datetime
 
 if __name__ == "__main__":
     print(os.getcwd())
+    
     with open('config.yaml', 'r') as f:
         config = yaml.safe_load(f)
-        label = config['parameters']['z03']['label']
-        rp_list = eval(config['parameters']['z03']['rp_list'])
+        label = config['z03']['label']
+        rp_list = eval(config['z03']['rp_list'])
+        save_dir = config['z03']['save_dir']
+    print(f'resolution parameter list: {rp_list}')
  
     
     big_cluster_thres = 0.5 # [PERCENT]
     
-    # edgelist_file = '/project/iprime_storage/myles_kim/_Spect_Analysis/nk_from_212x100k/edgelist_nk_100k_5markers.csv.gz'
-    # edges = cudf.read_csv(edgelist_file, dtype=['int32', 'int32'], compression='gzip')
     edgelist_file = f'edgelist_{label}.csv.gz'
     edges = cudf.read_csv(edgelist_file, dtype=['int32', 'int32'], compression="gzip")
     
@@ -26,14 +31,13 @@ if __name__ == "__main__":
     G.from_cudf_edgelist(edges, source="src", destination="dst", renumber = False) 
 
     del edges
-    print(f'resolution parameter list: {rp_list}')
 
-        
-    save_dir=f'partition_{label}'
     if not os.path.isdir(save_dir):
         os.mkdir(save_dir)
-    
-    print_file = f'{save_dir}/print_output.txt'
+        
+    current_datetime = datetime.now()
+    formatted_time = current_datetime.strftime("%H_%M_%S")
+    print_file = f'{save_dir}/print_output_{formatted_time}.txt'
     
     pof = open(print_file, 'w')
     print(f'Printout for leiden clustering: {label}', file=pof, flush=True)
@@ -43,7 +47,7 @@ if __name__ == "__main__":
     for rp in rp_list:
         time1 = datetime.now()
         print(time1, file=pof, flush=True)
-        parts, modularity_score = cugraph.leiden(G, max_iter=1000, resolution = rp, random_state=rseed)
+        parts, modularity_score = cugraph.leiden(G, max_iter=2000, resolution = rp, random_state=rseed)
         time2 = datetime.now()
         print(time2, file=pof, flush=True)
         print(time2-time1, file=pof, flush=True)
