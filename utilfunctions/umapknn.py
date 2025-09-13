@@ -25,7 +25,7 @@ def init_pool(the_results):
   results = the_results
 
 
-def edgelist_by_umap(fcs_data, type_markers, label):
+def edgelist_by_umap(fcs_data, type_markers, label, outputdir):
     
     print("Calculating KNN")
     print(fcs_data[type_markers].head(3))
@@ -45,13 +45,13 @@ def edgelist_by_umap(fcs_data, type_markers, label):
     edgelist['dst']=indices_wo_self.values.reshape(indices_wo_self.shape[0]*indices_wo_self.shape[1], order='C')
     print(f'edgelist shape: {edgelist.shape}')
     
-    edgelist.to_csv(f"edgelist_{label}.csv.gz", index=False, compression="gzip")
+    edgelist.to_csv(f"{outputdir}/edgelist_{label}.csv.gz", index=False, compression="gzip")
     duration = time.perf_counter() - start_time
     print(f"knn compute and save time: {duration:.4f} seconds")
 
     return f"edgelist_{label}.csv.gz"
 
-def umap_calculation(fcs_data, type_markers, queue):
+def umap_calculation(fcs_data, type_markers, outputdir, queue):
     pid = os.getpid()
     print(f"[PID: {pid}] Starting task with input: ")
     start_time = time.perf_counter()
@@ -59,12 +59,12 @@ def umap_calculation(fcs_data, type_markers, queue):
     reducer = umap.UMAP(min_dist=0.01, n_neighbors=15)
     embedding = reducer.fit_transform(fcs_data[type_markers])
     umap_df = pd.DataFrame({'ux':embedding[:,0], 'uy':embedding[:,1]})
-    umap_df.to_csv(f"umap_df_{len(type_markers)}markers.csv.gz", compression="gzip", index=False)
+    umap_df.to_csv(f"{outputdir}/umap_df_{len(type_markers)}markers.csv.gz", compression="gzip", index=False)
     
     duration = time.perf_counter() - start_time
     print(f"umap computing time: {duration:.4f} seconds")  
     
-    queue.put(("umap_file", f"umap_df_{len(type_markers)}markers.csv.gz"))
+    queue.put(("umap_file", f"{outputdir}/umap_df_{len(type_markers)}markers.csv.gz"))
 
 def umap_density_plot(fcs_df, figure_dir, label, **kwargs):
     plt.rcParams['font.size'] = 11
