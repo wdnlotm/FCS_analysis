@@ -1,19 +1,11 @@
-import os
-import time
-# import argparse
+import os, sys, time, math
+import argparse, yaml
 import subprocess
 # import bokeh
 # from bokeh.plotting import show
 
-import sys
-import yaml
-
-# import umap
-
-import math
 from random import sample
 
-# import flowkit as fk
 import numpy as np
 import pandas as pd
 
@@ -22,19 +14,19 @@ import matplotlib_inline.backend_inline
 import seaborn as sns
 
 import multiprocessing
-import multiprocess
 from itertools import starmap
-
 from multiprocessing import Manager
-
 from tqdm import tqdm
 
-global color_list 
-color_list = ['#e6194B', '#3cb44b', '#ffe119', '#4363d8',\
-        '#f58231', '#911eb4', '#42d4f4', '#f032e6',\
-        '#bfef45', '#469990', '#dcbeff', '#9A6324',\
-        '#800000', '#808000', '#2f4f4f', '#a9a9a9',\
-        '#ffd8b1', '#000000', '#fffac8', '#aaffc3']
+
+global color_list
+file_to_execute = "./utilfunctions/color_list.py"
+with open(file_to_execute, "r") as f: exec(f.read())
+# color_list = ['#e6194B', '#3cb44b', '#ffe119', '#4363d8',\
+#         '#f58231', '#911eb4', '#42d4f4', '#f032e6',\
+#         '#bfef45', '#469990', '#dcbeff', '#9A6324',\
+#         '#800000', '#808000', '#2f4f4f', '#a9a9a9',\
+#         '#ffd8b1', '#000000', '#fffac8', '#aaffc3']
 
 
 def data_prep_for_cycombine(df, condition, **kwargs):
