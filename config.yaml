@@ -1,8 +1,12 @@
+all:
+    outputdir: &outputdir 'outputs'
+    inputfiles: &inputfiles 'input_files'
+
 z00: #cofactor exploration step
-    dataloc: './data_spect'  # data location
+    dataloc: '/project/iprime_storage/myles_kim/_Spect_Analysis/_Allcell/_subsample_100k_bcell'  # data location
     figure_dir: 'z00_figures_for_spectral_cofactor' #figures will be saved here
     cofactorlist: "[1000.0, 2000.0, 5000.0, 8000.0, 10000.0, 12000.0]"     #cofactors to use. have minimum of 6 values
-    dataset: "SpectralNK"
+    dataset: "SpectralB"
     plotbysubj: False
     numpool: 10
     savefile_fcs_trimmed: &fcstrimmed 'fcs_df_trimmed.csv.gz' #fcs data with all markers. Not transformed
@@ -12,38 +16,34 @@ z01:   #batch correction
     cofactorfile: &cofactor 'cofactors.csv'
     batchinfo: 'batch.csv'
     numpool: 4
-z02: #UMAP & KNN
+z02:
     fcsdata: 'fcs_df_cycombine_BCed.csv.gz'
-    label: &label 't_cell_hogan'
+    label: &label 'b_cell_LLM2'
     figure_dir: "z02_figures_for_spectral_umap"
     cofactorfile: *cofactor
     min_distance: 0.01
     fcs_umap_savefile: &fcs_umap_savefile 'fcs_data_umap.csv.gz'
-z03:  #Leiden clustering
+z03:
     label: *label
     rp_list: &rp_list "[round(x*0.05,3) for x in range(2,11)]"   # eval()ed
     save_dir: &partition 'z03_partition'
 z04:
-    cofactorfile: *cofactor
-    load_dir: *partition
-    figure_dir: 'z04_round_one_clustering'
-    label: *label
-    rp_list: *rp_list
-    fcs_umap_savefile: *fcs_umap_savefile
+    cofactorfile: *cofactor #'cofactors.csv'
+    figure_dir: 'round_one_clustering'
 z05:
     rp_pick: &rp_pick 0.2
     figure_dir: 'z05_clusters'
     fcs_umap_saved: *fcs_umap_savefile
-    cofactorfile: &cofactor_r2 'cofactors_t_round2_hogan.csv'
+    cofactorfile: *cofactor #'cofactors.csv'
     label: *label
     min_dist: 0.1
 z06:
-    cluster_list: &cluster_list [0,1,2,3,4,5]
+    cluster_list: [0,1,2,3,4]
     edgelist_loc: 'z05_clusters'
     rp_pick: *rp_pick
     save_dir: 'subclustering'
     label: *label
-    rp_list: &rp_list_r2 '[0.001, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4]'
+    rp_list: '[0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4]'
     fcs_umap_saved: *fcs_umap_savefile
-    cofactorfile: *cofactor_r2 #'cofactors.csv'
+    cofactorfile: *cofactor #'cofactors.csv'
     min_dist: 0.1
