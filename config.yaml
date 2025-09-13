@@ -12,14 +12,14 @@ z01:   #batch correction
     cofactorfile: &cofactor 'cofactors.csv'
     batchinfo: 'batch.csv'
     numpool: 4
-z02:
+z02: #UMAP & KNN
     fcsdata: 'fcs_df_cycombine_BCed.csv.gz'
     label: &label 't_cell_hogan'
     figure_dir: "z02_figures_for_spectral_umap"
     cofactorfile: *cofactor
     min_distance: 0.01
     fcs_umap_savefile: &fcs_umap_savefile 'fcs_data_umap.csv.gz'
-z03:
+z03:  #Leiden clustering
     label: *label
     rp_list: &rp_list "[round(x*0.05,3) for x in range(2,11)]"   # eval()ed
     save_dir: &partition 'z03_partition'
