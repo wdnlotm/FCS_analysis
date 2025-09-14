@@ -1,6 +1,7 @@
 all:
     outputdir: &outputdir 'outputs'
     inputfiles: &inputfiles 'input_files'
+    colorlist: "analysis_scripts/color_list.py"
 
 z00: #cofactor exploration step
     dataloc: '/project/iprime_storage/myles_kim/_Spect_Analysis/_Allcell/_subsample_100k_bcell'  # data location
@@ -30,20 +31,9 @@ z03:
 z04:
     cofactorfile: *cofactor #'cofactors.csv'
     figure_dir: 'round_one_clustering'
-z05:
-    rp_pick: &rp_pick 0.2
-    figure_dir: 'z05_clusters'
-    fcs_umap_saved: *fcs_umap_savefile
-    cofactorfile: *cofactor #'cofactors.csv'
+    load_dir: *partition
+    figure_dir: 'z04_round_one_clustering'
     label: *label
-    min_dist: 0.1
-z06:
-    cluster_list: [0,1,2,3,4]
-    edgelist_loc: 'z05_clusters'
-    rp_pick: *rp_pick
-    save_dir: 'subclustering'
-    label: *label
-    rp_list: '[0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4]'
-    fcs_umap_saved: *fcs_umap_savefile
-    cofactorfile: *cofactor #'cofactors.csv'
-    min_dist: 0.1
+    rp_list: *rp_list
+    fcs_umap_savefile: *fcs_umap_savefile
+    numpool: 4   # lower if experience memory problems
