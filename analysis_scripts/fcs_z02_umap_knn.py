@@ -3,6 +3,7 @@ At this step z02,
 the edgelist of 15-NN graph will be calculated.
 The umap projection coordinates will be calculated.
 They will run in parallel to save time. umap calculate takes longer.
+This step also saves markers global max and min.
 """
 import os, sys, time, math
 import argparse, yaml
@@ -75,6 +76,11 @@ if __name__ == "__main__":
     type_markers = list(cofactor_df['antigen'][cofactor_df['class']=="clustering"])
     markers = list(cofactor_df['antigen'])
 
+    marker_max = fcs_data[markers].max()
+    marker_max.to_csv(f'{outputdir}/marker_max_BCed.csv')
+    marker_min = fcs_data[markers].min()
+    marker_min.to_csv(f'{outputdir}/marker_min_BCed.csv')
+  
     print(f'type markers: {type_markers}')
     print(f'all markers: {markers}')
 
