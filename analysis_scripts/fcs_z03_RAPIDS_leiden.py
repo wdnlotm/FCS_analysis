@@ -48,7 +48,7 @@ if __name__ == "__main__":
     for rp in rp_list:
         time1 = datetime.now()
         print(time1, file=pof, flush=True)
-        parts, modularity_score = cugraph.leiden(G, max_iter=2000, resolution = rp, random_state=rseed)
+        parts, modularity_score = cugraph.leiden(G, max_iter=100, resolution = rp, random_state=rseed)
         time2 = datetime.now()
         print(time2, file=pof, flush=True)
         print(time2-time1, file=pof, flush=True)
